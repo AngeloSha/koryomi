@@ -1,5 +1,5 @@
 'use client';
-import { useState, ReactNode, useRef, useEffect } from 'react';
+import { useState, ReactNode, useRef, useEffect, useCallback } from 'react';
 import { genreBackdrop } from '@/lib/art';
 
 /** Series backdrop: the BFF composites a wide, blurred, darkened full-bleed ambient from the series art
@@ -38,6 +38,97 @@ export function Backdrop({ seriesId, genres, className = '', version, hero }: { 
       <img src={src} alt="" aria-hidden="true" onError={() => setSrc(fallback)} className="absolute inset-0 h-full w-full object-cover" />
     </div>
   );
+}
+
+/**
+ * Whether the app is currently rendering right-to-left.
+ *
+ * Read from the document rather than from i18n state because the layout provider is what actually sets
+ * `dir`, and it is the same source the CSS logical properties are resolving against. Starts `false` and
+ * corrects after mount: this is a static export, so the first paint happens before any locale is known, and
+ * a hook that guessed would be wrong for one frame in every language rather than none.
+ *
+ * Charts use it to reverse their DATA, never their geometry -- a mirrored `<g>` mirrors the numerals too.
+ */
+export function useRtl(): boolean {
+  const [rtl, setRtl] = useState(false);
+  useEffect(() => {
+    const read = () => setRtl(document.documentElement.dir === 'rtl');
+    read();
+    const mo = new MutationObserver(read);
+    mo.observe(document.documentElement, { attributes: true, attributeFilter: ['dir'] });
+    return () => mo.disconnect();
+  }, []);
+  return rtl;
+}
+
+/**
+ * A bottom sheet, for the reader.
+ *
+ * `Modal` in ConfirmDialog.tsx is centred and sized for a form. The reader is the one immersive surface in
+ * the app -- no shell, no nav -- and the two things you reach for there (jump to a page, jump to a chapter)
+ * are one-handed, so they come up from the bottom edge where a thumb already is.
+ *
+ * `data-lenis-prevent` on the scroller is not optional: Lenis drives smooth scrolling for the whole app, and
+ * without it a flick inside the sheet scrolls the chapter behind it instead.
+ */
+export function Sheet({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  return (
+    <div className="fixed inset-0 z-[60] flex items-end justify-center bg-black/70 backdrop-blur-sm"
+      role="dialog" aria-modal="true" aria-label={title} onClick={onClose}>
+      <div
+        onClick={(e) => e.stopPropagation()}
+        data-lenis-prevent
+        className="glass max-h-[75vh] w-full overflow-y-auto rounded-t-3xl border border-ink-700 p-4
+                   pb-[max(1rem,env(safe-area-inset-bottom))] sm:mb-6 sm:max-w-xl sm:rounded-3xl"
+      >
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <h2 className="font-display text-base font-semibold text-fog-50">{title}</h2>
+          <button onClick={onClose} aria-label="Close"
+            className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-ink-800/80 text-fog-300">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M6 6l12 12M18 6 6 18" /></svg>
+          </button>
+        </div>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * One automatic retry for an <img> the caller draws itself, plus a manual one after that.
+ *
+ * `Img` above already does this, but it is the wrong component for a reader page. `Img` owns its own box and
+ * fades in over 700ms with a blur and a scale -- right for a cover appearing once on a shelf, wrong for the
+ * ninth page of a webtoon sliding past under a thumb, and it would fight the exact height the reader has
+ * already reserved from `page_dims`. So the behaviour is a hook and the markup stays with the caller.
+ *
+ * Reader pages were raw `<img>` with no `onError` at all: one 502 from the page endpoint and that page was a
+ * broken-image glyph until the whole chapter was reloaded.
+ *
+ * The retry appends `r=<attempt>` because a browser that has cached the failed response would otherwise
+ * serve it straight back. It changes no server-side cache key -- those are keyed on width -- so it does not
+ * cost a fresh CBZ open.
+ */
+export function useImgRetry(src: string, autoTries = 1) {
+  const [attempt, setAttempt] = useState(0);
+  // A new page in the same slot must start from a clean slate, or a page that failed once leaves the next
+  // one showing its retry button.
+  useEffect(() => { setAttempt(0); }, [src]);
+  const failed = attempt > autoTries;
+  const shown = attempt === 0 ? src : `${src}${src.includes('?') ? '&' : '?'}r=${attempt}`;
+  return {
+    src: failed ? '' : shown,
+    failed,
+    onError: useCallback(() => setAttempt((a) => a + 1), []),
+    retry: useCallback(() => setAttempt(0), []),
+  };
 }
 
 /** Image with skeleton + fade-in + graceful fallback. */

@@ -720,6 +720,7 @@ function SeriesInner() {
     meta?.status ? <span className="capitalize">{meta.status.toLowerCase()}</span> : null,
     series ? <>{series.booksCount} {mostlyVolumes ? 'volumes' : 'chapters'}</> : null,
     (series?.yomi?.unread ?? series?.booksUnreadCount ?? 0) > 0 ? <span className="text-accent">{tr('{n} unread', { n: series!.yomi?.unread ?? series!.booksUnreadCount })}</span> : null,
+    <BehindBit series={series} key="behind" />,
     updatedAt ? <>Updated {relativeTime(updatedAt)}</> : null,
     rating ? <span className="text-accent">★ {rating}/5</span> : null,
   ].filter(Boolean);
@@ -874,4 +875,36 @@ export default function SeriesPage() {
       <SeriesInner />
     </Suspense>
   );
+}
+
+/**
+ * "3 behind" -- how many chapters the source has that this library does not.
+ *
+ * The updater has stamped `source_missing` on the row for months and `seriesDto` threw it away, so the one
+ * number that answers "is there more of this?" was computed on a schedule and never shown.
+ *
+ * Five things must all be true before it says anything, because the failure mode here is not a wrong pixel,
+ * it is telling someone there are three new chapters when there are none:
+ *
+ *   1. the source has been asked at all -- `source` is null until the updater first visits;
+ *   2. it ANSWERED -- `missing` is null when the check errored, and a failed check is not "0 behind";
+ *   3. there is actually something missing -- zero is not news;
+ *   4. auto-update is on for this series -- with it off the number stops being maintained and goes stale
+ *      silently, which is worse than absent;
+ *   5. and the check is recent. Past 48 hours the number is still shown, but the sentence leads with how
+ *      old it is and drops the accent, because "3 behind" and "3 behind, as of last week" are different
+ *      claims and only one of them is being made.
+ *
+ * Never red. Red means destructive everywhere else in this palette, and a series having new chapters is the
+ * good news on this page.
+ */
+function BehindBit({ series }: { series?: Series }) {
+  const src = series?.source;
+  if (!src || src.missing == null || src.missing <= 0) return null;      // rules 1-3
+  if (series?.autoUpdate === false) return null;                          // rule 4
+  const age = Date.now() - Date.parse(src.checkedAt);
+  const stale = !Number.isFinite(age) || age > 48 * 3600_000;             // rule 5
+  return stale
+    ? <span className="text-fog-500">{tr('{n} behind, as of {ago}', { n: src.missing, ago: relativeTime(src.checkedAt) })}</span>
+    : <span className="text-accent">{tr('{n} behind', { n: src.missing })}</span>;
 }

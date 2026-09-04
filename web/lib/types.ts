@@ -38,6 +38,12 @@ export interface Series {
   metadata: SeriesMetadata;
   booksMetadata?: { summary?: string; genres?: string[]; tags?: string[] };
   color?: string | null;
+  /**
+   * What the updater's source said when it last asked. `null` means never asked, which is a different
+   * thing from asked-and-nothing-new -- and `missing: null` inside it means asked and the source did not
+   * answer, which is a third. The UI has to tell all three apart or it invents news.
+   */
+  source?: { missing: number | null; chapters: number | null; checkedAt: string } | null;
   yomi?: UchiyomiFlags;
   artVersion?: number; // bumps when an admin edits the cover/banner → cache-busts the image URLs
   overrides?: {

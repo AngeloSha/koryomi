@@ -1,10 +1,11 @@
 'use client';
 import Link from 'next/link';
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { img } from '@/lib/api';
 import { Book, Series } from '@/lib/types';
 import { chapterLabel, progressOf, relativeTime } from '@/lib/format';
 import { deviceId } from '@/lib/device';
+import { coverTriplet } from '@/lib/theme';
 import { Img, ProgressBar } from './ui';
 import { IcHeart, IcPlay, IcPlus } from './icons';
 import { t as tr } from '@/lib/i18n';
@@ -43,6 +44,25 @@ function useTilt() {
   return { style, glare, onPointerMove, onPointerLeave };
 }
 
+
+/**
+ * The cover's own dominant colour, as an "r g b" triplet on a `--tile` custom property.
+ *
+ * `glow` and `.grad-border` were taught to read `rgb(var(--tile, var(--accent)) / …)`, so setting this one
+ * property tints a card's rim and hover shadow with its own artwork -- and every surface that does not set
+ * it stays pixel-identical, because the fallback is the accent those tokens always used.
+ *
+ * A custom property declared ON THE ELEMENT is resolved per element at style time, which is why this can be
+ * done for a grid of two hundred tiles with no JavaScript running on hover. Writing to `documentElement`
+ * per pointerenter -- the obvious alternative -- restyles the whole document each time.
+ */
+function useTileTint(color?: string | null): React.CSSProperties {
+  return useMemo(() => {
+    const t = coverTriplet(color);
+    return t ? ({ ['--tile' as string]: t } as React.CSSProperties) : {};
+  }, [color]);
+}
+
 /** Portrait series cover -> series detail.
  *
  *  `eager` skips lazy-loading for tiles that are on screen at first paint. A lazy <img> waits for layout
@@ -54,12 +74,13 @@ export function SeriesCard({ series, w = 'w-32', eager = false }: { series: Seri
   // means such a rail shows no badge rather than a wrong one.
   const unread = series.yomi?.unread ?? series.booksUnreadCount ?? 0;
   const tilt = useTilt();
+  const tint = useTileTint(series.color);
   return (
     <Link href={`/series/?id=${series.id}`} className={`group shrink-0 ${w} [scroll-snap-align:start]`}>
       <div
         onPointerMove={tilt.onPointerMove}
         onPointerLeave={tilt.onPointerLeave}
-        style={tilt.style}
+        style={{ ...tilt.style, ...tint }}
         className="grad-border relative aspect-[2/3] overflow-hidden rounded-2xl border border-ink-700/60 shadow-lift transition-all duration-300 group-hover:-translate-y-1.5 group-hover:shadow-glow group-active:scale-[0.97]"
       >
         <Img src={img.seriesThumb(series.id)} alt={series.metadata?.title || series.name} eager={eager} className="h-full w-full transition-transform duration-500 group-hover:scale-[1.07]" />
@@ -127,13 +148,14 @@ export function SeriesTile({ series, eager = false, selectable, selected, onTogg
   // total chapter count -- so the badge would claim every chapter is unread. Preferring the enriched field
   // means such a rail shows no badge rather than a wrong one.
   const unread = series.yomi?.unread ?? series.booksUnreadCount ?? 0;
+  const tint = useTileTint(series.color);
   const Wrap: any = selectable ? 'button' : Link;
   const wrapProps = selectable
     ? { type: 'button', onClick: onToggle, className: 'group w-full text-left' }
     : { href: `/series/?id=${series.id}`, className: 'group' };
   return (
     <Wrap {...wrapProps}>
-      <div className="grad-border relative aspect-[2/3] overflow-hidden rounded-2xl border border-ink-700/60 transition-all duration-300 group-hover:-translate-y-1 group-hover:shadow-glow group-active:scale-[0.97]">
+      <div style={tint} className="grad-border relative aspect-[2/3] overflow-hidden rounded-2xl border border-ink-700/60 transition-all duration-300 group-hover:-translate-y-1 group-hover:shadow-glow group-active:scale-[0.97]">
         <Img src={img.seriesThumb(series.id)} alt={series.metadata?.title || series.name} eager={eager} className="h-full w-full transition-transform duration-500 group-hover:scale-[1.07]" />
         {selectable && (
           <>

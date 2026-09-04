@@ -21,6 +21,9 @@ import { Modal, msgOf } from '@/components/ConfirmDialog';
 import { Backdrop, ProgressBar } from '@/components/ui';
 import { useToast } from '@/components/Toast';
 import { IcDownload, IcSparkle, IcCheck, IcChevronRight, IcPlay, IcRefresh, IcSettings, IcLogOut, IcMoments } from '@/components/icons';
+import { Heatmap } from '@/components/charts/Heatmap';
+import { Pace } from '@/components/charts/Pace';
+import { Bars } from '@/components/charts/Bars';
 import { t as tr, LOCALES, keys } from '@/lib/i18n';
 import { useT } from '@/lib/I18nProvider';
 
@@ -56,6 +59,8 @@ const ACCENTS = ['#7c5cff', '#22d3ee', '#34d399', '#fb7185', '#f59e0b', '#60a5fa
 
 interface Stats {
   chapters_completed: number;
+  days?: number;
+  first_read_at?: string | null;
   series_touched: number;
   last_read_at: string | null;
   byDay: { day: string; chapters: number }[];
@@ -207,6 +212,7 @@ export default function ProfilePage() {
     </>
   ) : tab === 'Reading' ? (
     <>
+      <StudioCard span="wide" />
       <OfflineCard />
       <SmartDownloadsCard />
       <NotificationsCard />
@@ -1049,6 +1055,73 @@ function SignOutCard({ span = '' }: { span?: string }) {
       <p className="mt-3 flex items-center justify-center gap-1 text-center text-[11px] text-fog-600">
         <IcSparkle width={12} height={12} />{tr('Uchiyomi · personal reader for your Komga library')}
       </p>
+    </div>
+  );
+}
+
+/**
+ * The Reading tab used to hold four settings cards and no reading. This is the reading.
+ *
+ * One request, three views of it: the calendar, the trend, and the week. `/api/stats` already computed a
+ * dense daily series and simply had nowhere to be drawn at more than 90 days.
+ */
+function StudioCard({ span = '' }: { span?: string }) {
+  const [days, setDays] = useState(90);
+  const { data, isLoading } = useQuery({
+    queryKey: ['stats', days],
+    queryFn: () => api<Stats>(`/api/stats?days=${days}`),
+  });
+
+  const series = data?.byDay ?? [];
+  const counts = series.map((d) => d.chapters);
+  const total = counts.reduce((a, b) => a + b, 0);
+
+  // Sunday-first, matching the heatmap's rows and `Date.getUTCDay()`. Bucketed on the client because the
+  // window is already here -- asking the server for the same numbers a second way is how two endpoints
+  // start disagreeing.
+  const dow = [0, 0, 0, 0, 0, 0, 0];
+  for (const d of series) {
+    const t = Date.parse(`${d.day}T00:00:00Z`);
+    if (!Number.isNaN(t)) dow[new Date(t).getUTCDay()] += d.chapters;
+  }
+  const DOW = keys('Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat');
+
+  if (isLoading && !data) return <div className={`card skeleton h-64 ${span}`} />;
+
+  return (
+    <div className={`${CARD} ${span}`}>
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <h2 className="font-display text-base font-semibold">{tr('Reading studio')}</h2>
+        <div className="flex gap-1.5">
+          {[90, 180, 365].map((d) => (
+            <button key={d} onClick={() => setDays(d)} aria-pressed={days === d}
+              className={`chip text-[11px] ${days === d ? 'border-accent/50 text-accent' : 'text-fog-400'}`}>
+              {tr('{n} days', { n: d })}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {total === 0 ? (
+        <p className="py-6 text-center text-sm text-fog-500">{tr('Nothing read in this window yet.')}</p>
+      ) : (
+        <div className="space-y-5">
+          <div>
+            <p className="mb-1.5 text-[11px] uppercase tracking-widest text-fog-500">
+              {tr('{n} chapters', { n: total })}
+            </p>
+            {series.length > 0 && <Heatmap values={counts} start={series[0].day} />}
+          </div>
+          <div>
+            <p className="mb-1 text-[11px] uppercase tracking-widest text-fog-500">{tr('Pace')}</p>
+            <Pace values={counts} />
+          </div>
+          <div>
+            <p className="mb-2 text-[11px] uppercase tracking-widest text-fog-500">{tr('By weekday')}</p>
+            <Bars items={dow.map((v, i) => ({ label: tr(DOW[i]), value: v }))} />
+          </div>
+        </div>
+      )}
     </div>
   );
 }

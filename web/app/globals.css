@@ -189,7 +189,10 @@
 .grad-border { position: relative; }
 .grad-border::before {
   content: ''; position: absolute; inset: 0; border-radius: inherit; padding: 1px;
-  background: linear-gradient(140deg, rgb(var(--accent) / 0.55), rgba(255, 255, 255, 0.06) 42%, transparent 72%);
+  /* --tile is set per card from its cover's dominant colour; unset everywhere else, where this stays
+     exactly the accent gradient it has always been. A custom property on the element resolves per element
+     at style time, so this costs nothing and needs no JavaScript on hover. */
+  background: linear-gradient(140deg, rgb(var(--tile, var(--accent)) / 0.55), rgba(255, 255, 255, 0.06) 42%, transparent 72%);
   -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
   -webkit-mask-composite: xor; mask-composite: exclude; pointer-events: none;
 }

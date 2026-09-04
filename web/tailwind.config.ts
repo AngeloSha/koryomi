@@ -32,7 +32,7 @@ const config: Config = {
         accent: {
           DEFAULT: 'rgb(var(--accent) / <alpha-value>)',
           soft: 'rgb(var(--accent) / 0.14)',
-          glow: 'rgb(var(--accent) / 0.45)',
+          glow: 'rgb(var(--tile, var(--accent)) / 0.45)',
         },
       },
       fontFamily: {
@@ -44,7 +44,9 @@ const config: Config = {
         '4xl': '2rem',
       },
       boxShadow: {
-        glow: '0 0 0 1px rgb(var(--accent) / 0.4), 0 8px 40px -8px rgb(var(--accent) / 0.5)',
+        // Reads --tile when a card sets one, so a cover's own colour lifts off the page on hover, and
+        // falls back to the accent everywhere else -- which is every surface that does not set it.
+        glow: '0 0 0 1px rgb(var(--tile, var(--accent)) / 0.4), 0 8px 40px -8px rgb(var(--tile, var(--accent)) / 0.5)',
         lift: '0 24px 60px -20px rgba(0,0,0,0.85)',
       },
       keyframes: {

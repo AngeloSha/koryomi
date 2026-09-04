@@ -1869,6 +1869,15 @@ paths:
         - personal
       summary: "Reading statistics: streaks, chapters, time."
       operationId: getApiStats
+      parameters:
+        - name: days
+          in: query
+          required: false
+          description: Size of the daily window, clamped to 7-400. Defaults to 90.
+          schema:
+            type: integer
+            minimum: 7
+            maximum: 400
       security:
         - bearer: []
       responses:

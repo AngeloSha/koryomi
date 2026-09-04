@@ -1,5 +1,6 @@
 'use client';
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { pairSlides } from '@/lib/readerSpread';
 import Link from 'next/link';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { AnimatePresence, motion } from 'framer-motion';
@@ -13,9 +14,11 @@ import { getOfflineChapter, getPageBlob, queueProgress, noteOfflineProgress, lis
 import { applyCover, clearCover } from '@/lib/theme';
 import { ReaderPrefs, loadPrefs, savePrefs, loadSeriesPrefs, saveSeriesPrefs, syncPrefsFromServer, THEME_FILTER } from '@/lib/readerPrefs';
 import { ReaderSettings } from '@/components/ReaderSettings';
-import { Rail, SectionTitle } from '@/components/ui';
+import { Rail, SectionTitle, useImgRetry } from '@/components/ui';
+import { PageGrid } from '@/components/PageGrid';
+import { ChapterSheet } from '@/components/ChapterSheet';
 import { SeriesCard } from '@/components/cards';
-import { IcChevronLeft, IcChevronRight, IcSliders } from '@/components/icons';
+import { IcChevronLeft, IcChevronRight, IcSliders, IcRefresh, IcGrid } from '@/components/icons';
 import { t as tr } from '@/lib/i18n';
 
 interface PageDim { number: number; width: number | null; height: number | null }
@@ -85,6 +88,8 @@ function ReaderInner() {
 
   const [chrome, setChrome] = useState(true);
   const [showSettings, setShowSettings] = useState(false);
+  const [showPages, setShowPages] = useState(false);
+  const [showChapters, setShowChapters] = useState(false);
   const [current, setCurrent] = useState(0);
 
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -206,24 +211,14 @@ function ReaderInner() {
     return arr;
   }, [chapters]);
 
-  // ---- paged slides: 1 page per slide, or double spreads (chapter's first page solo, manga convention) ----
-  const { slides, slideOf } = useMemo(() => {
-    const sl: number[][] = [];
-    if (prefs.mode === 'paged' && prefs.spread) {
-      let k = 0;
-      while (k < flat.length) {
-        const it = flat[k];
-        const nxt = flat[k + 1];
-        if (it.firstOfChapter || !nxt || nxt.ci !== it.ci) { sl.push([k]); k++; }
-        else { sl.push([k, k + 1]); k += 2; }
-      }
-    } else {
-      for (let k = 0; k < flat.length; k++) sl.push([k]);
-    }
-    const so: number[] = new Array(flat.length);
-    sl.forEach((idxs, s) => idxs.forEach((k) => { so[k] = s; }));
-    return { slides: sl, slideOf: so };
-  }, [flat, prefs.mode, prefs.spread]);
+  // ---- paged slides: 1 page per slide, or double spreads ----
+  // The rules, and why each exists, live in lib/readerSpread.ts, where they can be tested without mounting
+  // this component. This used to pair a landscape double-page spread with the portrait page before it,
+  // which halved the spread and left every later pair in the chapter off by one.
+  const { slides, slideOf } = useMemo(
+    () => pairSlides(flat, prefs.mode === 'paged' && !!prefs.spread),
+    [flat, prefs.mode, prefs.spread],
+  );
 
   // ---- measure column width (× zoom) ----
   useEffect(() => {
@@ -437,6 +432,36 @@ function ReaderInner() {
     staleTime: 5 * 60 * 1000,
   });
   const activeChapter = chapters[flat[current]?.ci ?? 0];
+
+  // One place that knows how to move to a page, shared by the scrubber and the page grid. The initial-scroll
+  // effect above deliberately does not use it: that one must also seed `lastSent` and run exactly once.
+  const jumpTo = useCallback((idx: number) => {
+    const el = scrollRef.current;
+    const i = Math.max(0, Math.min(flat.length - 1, idx));
+    setCurrent(i);
+    if (!el) return;
+    if (prefs.mode === 'vertical') el.scrollTo({ top: tops[i] || 0 });
+    else el.scrollTo({ left: (slideOf[i] ?? i) * (el.clientWidth || 0) });
+  }, [flat.length, prefs.mode, tops, slideOf]);
+
+  // Thumbnails for the chapter being read, and nothing else -- see PageGrid for why.
+  const gridPages = useMemo(() => {
+    const ci = flat[current]?.ci;
+    if (ci == null) return [];
+    return flat
+      .map((it, idx) => ({ it, idx }))
+      .filter(({ it }) => it.ci === ci)
+      .map(({ it, idx }) => {
+        const ch = chapters[it.ci];
+        return {
+          idx,
+          number: it.number,
+          // An offline chapter has no URL to request: its pages are blobs already decoded into memory, and
+          // the same blob is the thumbnail.
+          src: ch ? (ch.offline ? blobUrls.current.get(it.key) || null : img.page(ch.id, it.number, 200)) : null,
+        };
+      });
+  }, [flat, current, chapters]);
   const activeIdx = chapterRefs.findIndex((c) => c.id === activeChapter?.id);
   const prevId = activeIdx > 0 ? chapterRefs[activeIdx - 1]?.id : undefined;
   const nextId = activeIdx >= 0 && activeIdx < chapterRefs.length - 1 ? chapterRefs[activeIdx + 1]?.id : undefined;
@@ -694,8 +719,7 @@ function ReaderInner() {
                 )}
                 <div style={{ height: heights[i] || undefined, marginBottom: prefs.gap }} className="relative w-full bg-ink-900">
                   {activeSet.has(i) && srcFor(i) ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={srcFor(i)!} alt={`Page ${p.number}`} className="block h-full w-full object-cover" decoding="async" />
+                    <ReaderImg src={srcFor(i)!} alt={`Page ${p.number}`} className="block h-full w-full object-cover" />
                   ) : (
                     <div className="flex h-full w-full items-center justify-center text-xs text-ink-600">{p.number}</div>
                   )}
@@ -716,10 +740,9 @@ function ReaderInner() {
                 {shown.map((i) => {
                   const p = flat[i];
                   return activeSet.has(i) && srcFor(i) ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img key={p.key} src={srcFor(i)!} alt={`Page ${p.number}`}
+                    <ReaderImg key={p.key} src={srcFor(i)!} alt={`Page ${p.number}`}
                       className={`max-h-full object-contain ${idxs.length === 2 ? 'max-w-[50%]' : 'max-w-full'}`}
-                      decoding="async" style={{ transform: zoom !== 1 ? `scale(${zoom})` : undefined }} />
+                      style={{ transform: zoom !== 1 ? `scale(${zoom})` : undefined }} />
                   ) : (
                     <span key={p.key} className="text-ink-600">{p.number}</span>
                   );
@@ -762,12 +785,13 @@ function ReaderInner() {
               ) : (
                 <div className="min-w-0 flex-1">{titleBlock}</div>
               )}
-              {/* desktop chapter jump */}
+              {/* Chapter jump, at every width. This was `hidden lg:block`, so on a phone the only way
+                  through a series was prev/next, one chapter at a time. */}
               {chapterRefs.length > 0 && (
-                <select value={activeChapter?.id || ''} onChange={(e) => goChapter(e.target.value)}
-                  className="hidden max-w-[180px] rounded-full border border-ink-600 bg-ink-900/80 px-3 py-2 text-xs text-fog-200 outline-none lg:block">
-                  {chapterRefs.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
-                </select>
+                <button onClick={() => setShowChapters(true)} aria-label={tr('Chapters')}
+                  className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-black/45 text-white backdrop-blur">
+                  <IcGrid width={18} height={18} />
+                </button>
               )}
               <button onClick={toggleBookmark} aria-label={bookmarked ? 'Remove bookmark' : 'Bookmark this page'}
                 aria-pressed={bookmarked}
@@ -807,17 +831,17 @@ function ReaderInner() {
                   className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-black/45 text-white backdrop-blur disabled:opacity-30">
                   <IcChevronLeft width={18} height={18} />
                 </button>
-                <span className="shrink-0 text-[11px] tabular-nums text-fog-300">{chapterPageCount ? `${pageInChapter}/${chapterPageCount}` : `${current + 1}/${total}`}</span>
+                {/* The counter is the button. A long-press would be invisible on a phone, which this repo
+                    already learned once from a hover-only affordance nobody found. */}
+                <button onClick={() => setShowPages(true)} aria-label={tr('Jump to a page')}
+                  className="shrink-0 rounded-full px-1.5 py-0.5 text-[11px] tabular-nums text-fog-300 transition hover:bg-white/10 hover:text-white">
+                  {chapterPageCount ? `${pageInChapter}/${chapterPageCount}` : `${current + 1}/${total}`}
+                </button>
                 <input type="range" min={0} max={Math.max(0, total - 1)} value={current}
                   onPointerDown={() => setScrubbing(true)}
                   onPointerUp={() => setScrubbing(false)}
                   onPointerCancel={() => setScrubbing(false)}
-                  onChange={(e) => {
-                    const idx = Number(e.target.value);
-                    setCurrent(idx);
-                    if (prefs.mode === 'vertical') scrollRef.current?.scrollTo({ top: tops[idx] || 0 });
-                    else scrollRef.current?.scrollTo({ left: (slideOf[idx] ?? idx) * (scrollRef.current?.clientWidth || 0) });
-                  }}
+                  onChange={(e) => jumpTo(Number(e.target.value))}
                   className="h-1 flex-1 accent-[rgb(var(--accent))]" />
                 <button onClick={() => goChapter(nextId)} disabled={!nextId}
                   className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-black/45 text-white backdrop-blur disabled:opacity-30">
@@ -832,6 +856,15 @@ function ReaderInner() {
       <AnimatePresence>
         {showSettings && <ReaderSettings prefs={prefs} set={setPref} onClose={() => setShowSettings(false)} />}
       </AnimatePresence>
+
+      {showPages && (
+        <PageGrid title={activeChapter?.title || tr('Pages')} pages={gridPages} current={current}
+          onPick={jumpTo} onClose={() => setShowPages(false)} />
+      )}
+      {showChapters && (
+        <ChapterSheet title={tr('Chapters')} chapters={chapterRefs} activeId={activeChapter?.id}
+          onPick={goChapter} onClose={() => setShowChapters(false)} />
+      )}
 
       {!ready && (
         <div className="absolute inset-0 z-50 flex items-center justify-center bg-ink-950">
@@ -854,4 +887,30 @@ export default function ReaderPage() {
       <ReaderInner />
     </Suspense>
   );
+}
+
+/**
+ * One reader page, with a retry.
+ *
+ * Both call sites -- the continuous column and the paged slide -- keep their own classes, because the two
+ * layouts size a page completely differently: one fills a box whose height was reserved from `page_dims`,
+ * the other is bounded by the viewport. Only the failure behaviour is shared.
+ */
+function ReaderImg({ src, alt, className, style }: {
+  src: string; alt: string; className?: string; style?: React.CSSProperties;
+}) {
+  const { src: shown, failed, onError, retry } = useImgRetry(src);
+  if (failed) {
+    // A broken glyph tells the reader nothing and offers nothing. This says which page failed and gives them
+    // the one action that fixes it, without reloading the chapter and losing their place.
+    return (
+      <div className="flex h-full w-full items-center justify-center p-4">
+        <button onClick={retry} className="chip text-xs text-fog-300">
+          <IcRefresh width={13} height={13} />{tr('Page did not load — tap to retry')}
+        </button>
+      </div>
+    );
+  }
+  // eslint-disable-next-line @next/next/no-img-element
+  return <img src={shown} alt={alt} className={className} style={style} decoding="async" onError={onError} />;
 }

@@ -118,12 +118,14 @@ try {
 
   // ---------------------------------------------------------------- read something
   console.log('\n  series and reader');
+  let seriesHref = null;
   const href = await page.evaluate(() => {
     const a = [...document.querySelectorAll('a')].find((x) => /\/series\//.test(x.getAttribute('href') || ''));
     return a ? a.getAttribute('href') : null;
   });
   if (!href) bad('no series to open from the library grid');
   else {
+    seriesHref = href;
     await page.goto(BASE + href, { waitUntil: 'networkidle2', timeout: 60000 });
     await sleep(3000);
     await shot('series');
@@ -147,9 +149,20 @@ try {
   // One check covering three things that only work together: the reader accepts `&page=N` as a deep link,
   // the bookmark write lands, and the panel thumbnail on /moments actually decodes. Before this the app
   // could save a page and then had nowhere to show it, so none of the three had ever been exercised.
+  // The reader hides its own chrome 3.8s after it appears, so the header and footer -- the counter, the
+  // bookmark, the chapter jump -- are simply absent from the DOM by the time a test gets there. A tap in the
+  // middle of the page toggles them back, after the 260ms double-tap window has passed.
+  const revealChrome = async () => {
+    const vp = page.viewport();
+    await page.mouse.click(Math.round(vp.width / 2), Math.round(vp.height / 2));
+    await sleep(700);
+  };
+
   console.log('\n  moments');
+  let readerBook = null;
   {
     const bookId = new URL(page.url()).searchParams.get('book');
+    readerBook = bookId;
     const counterAt = () => page.evaluate(() => {
       const m = (document.body.innerText || '').match(/\b(\d+)\s*\/\s*(\d+)\b/);
       return m ? Number(m[1]) : 0;
@@ -158,7 +171,8 @@ try {
     else {
       const WANT = 2;   // every seeded chapter has three pages, so this is neither the first nor the last
       await page.goto(`${BASE}/reader/?book=${encodeURIComponent(bookId)}&page=${WANT}`, { waitUntil: 'networkidle2', timeout: 60000 });
-      await sleep(6000);
+      await sleep(5000);
+      await revealChrome();
       const landed = await counterAt();
       landed === WANT
         ? ok(`the reader honoured &page=${WANT}`)
@@ -186,11 +200,103 @@ try {
         if (!/[?&]page=/.test(live[0].href)) bad(`a moment links to ${live[0].href} — with no page, it opens at the start of the chapter`);
         else {
           await page.goto(BASE + live[0].href.replace(/^\//, '/'), { waitUntil: 'networkidle2', timeout: 60000 });
-          await sleep(6000);
+          await sleep(5000);
+          await revealChrome();
           const back = await counterAt();
           back === WANT
             ? ok(`tapping a moment reopens page ${WANT}`)
             : bad(`tapping a moment opened page ${back}, not the page ${WANT} that was saved`);
+        }
+      }
+    }
+  }
+
+  // ------------------------------------------------- offline reading, with the server actually unreachable
+  //
+  // Two bugs shipped together here and both are invisible while the API answers. `chapterRefs` comes from
+  // `/api/series/:id/books`; with the server unreachable that call fails, the list came back empty, and an
+  // empty list was read as "you have reached the end" -- so EVERY downloaded chapter ended with "you
+  // finished the series" and both chapter arrows were dead. The offline reader now takes its chapter list
+  // from what is downloaded, and an unknown list is no longer a conclusion.
+  //
+  // ⚠️ THE API IS CUT, NOT THE NETWORK. `setOfflineMode(true)` also stops the browser fetching the page
+  // DOCUMENT, and that fails for a reason that has nothing to do with this code: the service worker has no
+  // handler for Next's `/reader/index.txt` RSC payload, so the client router's fetch dies, it falls back to
+  // a browser navigation, and the tab ends up showing the raw payload as text. That is a real gap and it is
+  // written up separately; simulating it here would only ever measure the service worker. Aborting `/api/*`
+  // is exactly the condition the reader's offline path was written for.
+  //
+  // The chapter opened is the middle one, so prev AND next must both be live -- which is precisely what an
+  // empty chapter list cannot produce.
+  console.log('\n  offline reading');
+  if (!seriesHref) console.log('    [ .. ] no series, skipping');
+  else {
+    await page.goto(BASE + seriesHref, { waitUntil: 'networkidle2', timeout: 60000 });
+    await sleep(2500);
+    const started = await page.evaluate(() => {
+      const b = [...document.querySelectorAll('button')].find((x) => /download all/i.test(x.innerText || ''));
+      if (!b) return false;
+      b.click();
+      return true;
+    });
+    if (!started) bad('the series page has no "Download all" button');
+    else {
+      await sleep(20000);   // three tiny seeded chapters; the button reads "Saving…" while it works
+      await page.goto(`${BASE}/downloads`, { waitUntil: 'networkidle2', timeout: 60000 });
+      await sleep(2500);
+      const saved = await page.evaluate(() =>
+        [...document.querySelectorAll('a[href*="/reader"]')].map((a) => a.getAttribute('href')));
+      if (saved.length < 2) bad(`only ${saved.length} chapter(s) downloaded — cannot test the offline chapter list`);
+      else {
+        ok(`downloaded ${saved.length} chapters`);
+        let cutApi = true;
+        await page.setRequestInterception(true);
+        const cut = (r) => {
+          if (cutApi && new URL(r.url()).pathname.startsWith('/api/')) r.abort('internetdisconnected').catch(() => {});
+          else r.continue().catch(() => {});
+        };
+        page.on('request', cut);
+        try {
+          await page.goto(BASE + saved[Math.floor(saved.length / 2)], { waitUntil: 'domcontentloaded', timeout: 60000 }).catch(() => {});
+          await sleep(9000);
+          await revealChrome();
+          await shot('offline-reader');
+
+          const seen = await page.evaluate(() => ({
+            signedOut: !!document.querySelector('input[type=password]'),
+            body: (document.body.innerText || '').slice(0, 400),
+            // A downloaded page is decoded from a blob: URL held in memory. Counting ANY decoded <img>
+            // would also count the sign-in logo -- and did, on an earlier version of this check that
+            // passed while the screenshot showed a login form.
+            blobs: [...document.querySelectorAll('img')].filter((i) => i.src.startsWith('blob:') && i.naturalWidth > 0).length,
+            // Exactly the two chapter arrows: they are the only buttons in the reader that can be disabled,
+            // which `disabled:opacity-30` identifies. Matching every round icon button would sweep in four
+            // that are never disabled, and "not all disabled" would then be true whatever the arrows did.
+            disabled: [...document.querySelectorAll('button')]
+              .filter((b) => (b.className || '').includes('disabled:opacity-30'))
+              .map((b) => b.disabled),
+          }));
+
+          if (seen.signedOut) bad('the app showed its sign-in page with the API down — a downloaded chapter was unreachable');
+          else {
+            seen.blobs > 0
+              ? ok(`offline reader decoded ${seen.blobs} downloaded page(s) out of IndexedDB`)
+              : bad('offline reader decoded no downloaded page — nothing came out of IndexedDB');
+
+            // Reintroduce by deleting the `chapterRefs.length` guard before `setEnded(true)`.
+            /you finished|finished the series/i.test(seen.body)
+              ? bad('offline reader claims the series is finished on a chapter that is not the last')
+              : ok('offline reader does not claim the series is over');
+
+            const arrows = seen.disabled;
+            if (arrows.length < 2) bad(`found ${arrows.length} chapter arrow(s) in the offline reader, expected 2`);
+            else if (arrows.every((d) => d === true)) bad('both chapter arrows are dead offline — the chapter list came back empty');
+            else ok(`offline chapter navigation is live (${arrows.filter((d) => !d).length}/2 arrows enabled)`);
+          }
+        } finally {
+          cutApi = false;
+          page.off('request', cut);
+          await page.setRequestInterception(false).catch(() => {});
         }
       }
     }
@@ -267,12 +373,37 @@ try {
   // ---------------------------------------------------------------- phone
   console.log('\n  phone 390x844');
   await page.setViewport({ width: 390, height: 844, isMobile: true, hasTouch: true });
-  for (const [name, path] of [['home', '/'], ['library', '/library']]) {
+  // The reader is measured here and nowhere else: layout.mjs cannot reach it, because its PAGES are static
+  // paths and the reader needs a book id. Its header gained a chapter button that used to be desktop-only,
+  // which is exactly the kind of change that pushes a 390px header sideways.
+  const phonePages = [['home', '/'], ['library', '/library'], ['moments', '/moments']];
+  if (readerBook) phonePages.push(['reader', `/reader/?book=${encodeURIComponent(readerBook)}`]);
+  for (const [name, path] of phonePages) {
     await page.goto(BASE + path, { waitUntil: 'networkidle2', timeout: 60000 }).catch(() => {});
-    await sleep(2000);
+    await sleep(name === 'reader' ? 5000 : 2000);
     await shot(`phone-${name}`);
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
     overflow > 4 ? bad(`phone ${path}: ${overflow}px of horizontal overflow`) : ok(`phone ${path}: no overflow`);
+  }
+
+  // The chapter list used to be a `<select className="hidden lg:block">`, so on a phone there was no way to
+  // move through a series except one chapter at a time. Reintroduce that class and this fails.
+  if (readerBook) {
+    await revealChrome();
+    const jump = await page.evaluate(() => {
+      const b = [...document.querySelectorAll('button')].find((x) => /chapters/i.test(x.getAttribute('aria-label') || ''));
+      if (!b) return 'missing';
+      if (!b.getBoundingClientRect().width) return 'hidden';
+      b.click();
+      return 'opened';
+    });
+    if (jump !== 'opened') bad(`phone reader: the chapter jump is ${jump} — a phone can only move one chapter at a time`);
+    else {
+      await sleep(800);
+      const rows = await page.evaluate(() => document.querySelectorAll('[role=dialog] button').length);
+      rows > 1 ? ok(`phone reader: the chapter sheet opened with ${rows} rows`) : bad('phone reader: the chapter sheet opened empty');
+      await page.keyboard.press('Escape');
+    }
   }
 
   // ---------------------------------------------------------------- the rails move
@@ -319,6 +450,53 @@ try {
     });
     return r.ok ? (await r.json()).accessToken : null;
   };
+
+  // ---------------------------------------------------------------- the unread badge counts unread
+  //
+  // `seriesDto` hardcoded `booksUnreadCount` to the TOTAL chapter count and the cards read it, so every
+  // badge in the app showed the size of the series and never moved however much you had read. `enrichSeries`
+  // had been computing the right number into `yomi.unread` the whole time.
+  //
+  // One chapter of three marked read must leave a badge of two -- in the API and on the tile.
+  console.log('\n  unread badge');
+  {
+    const sid = seriesHref ? new URLSearchParams(seriesHref.split('?')[1] || '').get('id') : null;
+    const tok = await login(USER, PASS);
+    if (!sid || !tok) bad('cannot check the badge without a series and a session');
+    else {
+      const auth = { authorization: `Bearer ${tok}` };
+      const books = await (await fetch(`${BASE}/api/series/${encodeURIComponent(sid)}/books?size=100`, { headers: auth })).json();
+      const list = books.content ?? [];
+      if (list.length < 2) bad(`the seeded series has ${list.length} chapter(s) — need at least two to tell a badge from a count`);
+      else {
+        await fetch(`${BASE}/api/books/${encodeURIComponent(list[0].id)}/progress`, {
+          method: 'PUT', headers: { 'content-type': 'application/json', ...auth },
+          body: JSON.stringify({ page: 1, completed: true, silent: true }),
+        });
+        const after = await (await fetch(`${BASE}/api/series/${encodeURIComponent(sid)}`, { headers: auth })).json();
+        const want = list.length - 1;
+        after.booksUnreadCount === want
+          ? ok(`booksUnreadCount is ${want} of ${list.length}`)
+          : bad(`booksUnreadCount is ${after.booksUnreadCount}, expected ${want} — the API is still reporting the total`);
+        after.booksReadCount === 1
+          ? ok('booksReadCount is 1')
+          : bad(`booksReadCount is ${after.booksReadCount}, expected 1`);
+
+        await page.goto(`${BASE}/library`, { waitUntil: 'networkidle2', timeout: 60000 });
+        await sleep(3000);
+        const badge = await page.evaluate((id) => {
+          const tile = document.querySelector(`a[href*="id=${id}"]`);
+          if (!tile) return 'no tile';
+          const n = [...tile.querySelectorAll('span')].map((e) => (e.textContent || '').trim())
+            .find((t) => /^\d+$/.test(t));
+          return n ?? 'no badge';
+        }, sid);
+        String(badge) === String(want)
+          ? ok(`the library tile shows ${badge}`)
+          : bad(`the library tile badge reads ${JSON.stringify(badge)}, expected ${want}`);
+      }
+    }
+  }
 
   // ---------------------------------------------------------------- clicking, not typing URLs
   //

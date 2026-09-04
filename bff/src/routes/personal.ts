@@ -422,6 +422,10 @@ export default async function personalRoutes(app: FastifyInstance) {
 
   app.get('/api/stats', async (req) => {
     const uid = userIdOf(req);
+    // Clamped, not trusted: `days` sizes a generate_series, so an unbounded value is a way to ask the
+    // database to materialise a few million rows. 400 covers "a year, plus the run-up" -- the widest thing
+    // the heatmap draws -- and 7 is the narrowest window in which a week's shape is visible at all.
+    const windowDays = Math.max(7, Math.min(400, Math.floor(Number((req.query as Record<string, string>).days) || 90)));
     const summary = (await one('SELECT chapters_completed, series_touched, total_events, last_read_at FROM reading_stats WHERE user_id = $1', [uid])) ?? {
       chapters_completed: 0,
       series_touched: 0,
@@ -444,18 +448,18 @@ export default async function personalRoutes(app: FastifyInstance) {
       `SELECT to_char(d::date, 'YYYY-MM-DD') AS day,
               coalesce(e.chapters, 0)::int   AS chapters
          FROM generate_series(
-                (now() AT TIME ZONE 'UTC')::date - interval '89 days',
+                (now() AT TIME ZONE 'UTC')::date - make_interval(days => $2 - 1),
                 (now() AT TIME ZONE 'UTC')::date,
                 interval '1 day') AS d
          LEFT JOIN (
            SELECT date_trunc('day', created_at AT TIME ZONE 'UTC')::date AS day,
                   count(*) FILTER (WHERE completed) AS chapters
              FROM reading_events
-            WHERE user_id = $1 AND created_at > now() - interval '90 days'
+            WHERE user_id = $1 AND created_at > now() - make_interval(days => $2)
             GROUP BY 1
          ) e ON e.day = d::date
         ORDER BY 1`,
-      [uid],
+      [uid, windowDays],
     );
     const days = (
       await q<{ d: string }>(
@@ -466,24 +470,49 @@ export default async function personalRoutes(app: FastifyInstance) {
     const streaks = computeStreaks(days);
     const weekChapters = (await one<{ c: number }>(`SELECT count(*)::int AS c FROM reading_events WHERE user_id = $1 AND completed = true AND created_at > now() - interval '7 days'`, [uid]))?.c ?? 0;
     const settings = ((await one<{ data: any }>('SELECT data FROM app_settings WHERE user_id = $1', [uid]))?.data) ?? {};
-    return { ...summary, byDay, currentStreak: streaks.current, longestStreak: streaks.longest, weekChapters, weeklyGoal: settings.weeklyGoal ?? 0 };
+    // When reading started, so a year picker can offer the years that exist rather than guessing a range.
+    // Null for an account that has never read anything, which is different from "started this year".
+    const firstRead = (await one<{ at: string | null }>('SELECT min(created_at) AS at FROM reading_events WHERE user_id = $1', [uid]))?.at ?? null;
+    return { ...summary, days: windowDays, byDay, first_read_at: firstRead, currentStreak: streaks.current, longestStreak: streaks.longest, weekChapters, weeklyGoal: settings.weeklyGoal ?? 0 };
   });
 
   app.get('/api/wrapped', async (req) => {
     const uid = userIdOf(req);
-    const year = Number((req.query as Record<string, string>).year) || new Date().getFullYear();
+    const year = Math.max(1970, Math.min(9999, Math.floor(Number((req.query as Record<string, string>).year) || new Date().getUTCFullYear())));
+
+    // UTC, on both sides of the wire.
+    //
+    // This was `extract(year from created_at) = $2`, which evaluates a timestamptz in the SERVER's zone, and
+    // then bucketed months and weekdays with `new Date().getMonth()/.getDay()`, which use the server's zone
+    // too. /api/stats next door buckets in UTC. So on any container not running UTC the two endpoints
+    // disagreed, and a chapter finished on New Year's Eve counted in the wrong year -- the exact split-brain
+    // statsShape.int.test.ts was written about, sitting in the endpoint beside it.
+    //
+    // A half-open range rather than a function on the column, so the index on (user_id, created_at) is
+    // usable; `extract(...)` was not sargable and scanned every event the account ever had.
     const rows = await q<{ series_id: string; created_at: string }>(
-      `SELECT series_id, created_at FROM reading_events WHERE user_id = $1 AND completed = true AND extract(year from created_at) = $2`,
-      [uid, year],
+      `SELECT series_id, created_at
+         FROM reading_events
+        WHERE user_id = $1 AND completed = true
+          AND created_at >= make_timestamptz($2, 1, 1, 0, 0, 0, 'UTC')
+          AND created_at <  make_timestamptz($3, 1, 1, 0, 0, 0, 'UTC')`,
+      [uid, year, year + 1],
     );
     const seriesCounts: Record<string, number> = {};
     const byMonth = Array(12).fill(0);
     const dow = Array(7).fill(0);
+    // Dense, one slot per day of the calendar year -- 366 in a leap year, and index 0 is 1 January UTC. A
+    // sparse map would make the client invent the gaps, which is what the stats chart used to do wrong.
+    const yearStart = Date.UTC(year, 0, 1);
+    const dayCount = Math.round((Date.UTC(year + 1, 0, 1) - yearStart) / 86_400_000);
+    const byDay: number[] = Array(dayCount).fill(0);
     for (const r of rows) {
       seriesCounts[r.series_id] = (seriesCounts[r.series_id] ?? 0) + 1;
       const d = new Date(r.created_at);
-      byMonth[d.getMonth()]++;
-      dow[d.getDay()]++;
+      byMonth[d.getUTCMonth()]++;
+      dow[d.getUTCDay()]++;
+      const i = Math.floor((Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()) - yearStart) / 86_400_000);
+      if (i >= 0 && i < dayCount) byDay[i]++;
     }
     // Over-take, then filter, then take five: the top series are resolved by id, so an 18+ title would
     // otherwise both appear here and, once hidden, leave the rail with four entries instead of five.
@@ -498,16 +527,32 @@ export default async function personalRoutes(app: FastifyInstance) {
         }),
       )
     ).filter(Boolean) as { id: string; title: string; count: number; genres: string[] }[];
+    // Genres come from a pool of twenty series and are weighted by how much of each you actually read.
+    //
+    // They used to come from the five series above, counted one apiece: "your top genres" meant "the genres
+    // of your top five series", each weighted the same whether you read three chapters of it or three
+    // hundred. That is a much smaller claim than the label makes, and with five series a single long-running
+    // title decided the whole answer.
+    const poolIds = ranked.filter((id) => shownTop.has(id)).slice(0, 20);
+    const pool = (
+      await Promise.all(poolIds.map(async (id) => {
+        const s = await komga.series(vc(req), id).catch(() => null);
+        return s ? { id, genres: ((s as any).metadata?.genres ?? []) as string[] } : null;
+      }))
+    ).filter(Boolean) as { id: string; genres: string[] }[];
     const genreCounts: Record<string, number> = {};
-    for (const s of topSeries) for (const g of s.genres) genreCounts[g] = (genreCounts[g] ?? 0) + 1;
-    const topGenres = Object.entries(genreCounts).sort((a, b) => b[1] - a[1]).slice(0, 5).map((e) => e[0]);
+    for (const s of pool) for (const g of s.genres) genreCounts[g] = (genreCounts[g] ?? 0) + (seriesCounts[s.id] ?? 0);
+    const rankedGenres = Object.entries(genreCounts).sort((a, b) => b[1] - a[1]).slice(0, 5);
     return {
       year,
       chapters: rows.length,
       series: Object.keys(seriesCounts).length,
       topSeries: topSeries.map((s) => ({ id: s.id, title: s.title, count: s.count })),
-      topGenres,
+      topGenres: rankedGenres.map((e) => e[0]),
+      topGenreCounts: rankedGenres.map(([name, count]) => ({ name, count })),
       byMonth,
+      byDay,
+      byDow: dow,
       busiestDow: dow.indexOf(Math.max(...dow)),
     };
   });

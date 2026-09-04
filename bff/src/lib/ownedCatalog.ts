@@ -10,7 +10,10 @@ function page<T>(content: T[], total: number, p: number, size: number): Page<T> 
   return { content, totalElements: total, totalPages, number: p, size, first: p <= 0, last: p >= totalPages - 1 };
 }
 
-const SERIES_COLS = 'id, title, summary, status, genres, author, age_rating, books_count, cover_book_id, web, created_at, latest_mtime, auto_update, library_id, library_pinned';
+// ⚠️ Every name here must ALSO be produced by the inner SELECT of `seriesSrcWith` below, which enumerates
+// its columns explicitly. Adding one to only one of the two makes EVERY series read fail with "column does
+// not exist" -- the series page, the library grid, search, the home rails, OPDS, all of it.
+const SERIES_COLS = 'id, title, summary, status, genres, author, age_rating, books_count, cover_book_id, web, created_at, latest_mtime, auto_update, library_id, library_pinned, source_chapters, source_missing, source_checked_at';
 
 /**
  * The one place a series is read from.
@@ -32,7 +35,10 @@ const seriesSrcWith = (gate: Gate, ctx: ViewCtx, p: Params, alias: string) => `(
          COALESCE(o.author, s.author) AS author,
          COALESCE(o.age_rating, s.age_rating) AS age_rating,
          s.books_count, s.cover_book_id, s.web, s.created_at, s.latest_mtime,
-         s.auto_update, s.library_id, s.library_pinned
+         s.auto_update, s.library_id, s.library_pinned,
+         -- What the source last said, so "how far behind is this?" is a column rather than a network call.
+         -- Kept in step with SERIES_COLS above; see the warning there.
+         s.source_chapters, s.source_missing, s.source_checked_at
     FROM lib_series s LEFT JOIN series_overrides o ON o.series_id = s.id
    WHERE ${gate('s', ctx, p)}
 ) ${alias}`;
@@ -105,6 +111,18 @@ function seriesDto(r: any) {
     booksMetadata: { summary, genres, tags: [] },
     // whether the scheduled updater pulls new chapters for this series; settable from the series page
     autoUpdate: r.auto_update !== false,
+    // What the source said when it was last asked. ONE nested object, present or null, because "never
+    // checked" and "checked, nothing new" are genuinely different states and a flat `sourceMissing: 0`
+    // cannot tell them apart. `missing` stays nullable inside it: the updater stamps `checked_at` whenever
+    // it ASKED, including when the source errored and answered nothing, and a failed check must not be
+    // rendered as "0 chapters behind".
+    source: r.source_checked_at
+      ? {
+          missing: r.source_missing ?? null,
+          chapters: r.source_chapters ?? null,
+          checkedAt: new Date(r.source_checked_at).toISOString(),
+        }
+      : null,
   };
 }
 
