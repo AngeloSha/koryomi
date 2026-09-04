@@ -34,6 +34,21 @@ export interface OfflineChapter {
   readingDirection?: string;
   totalBytes: number;
   savedAt: number;
+  /**
+   * Where this reader last was in this chapter, and when.
+   *
+   * Written alongside every progress ping so a downloaded chapter can resume with no network. The server is
+   * still the source of truth when it answers -- progress is cross-device and the outbox pushes this value up
+   * -- so the reader consults it only after a live read fails.
+   *
+   * ADDED WITHOUT A VERSION BUMP, on purpose. IndexedDB records are schemaless: an older record simply lacks
+   * the field and falls through to page 1, exactly as before. Bumping VERSION to add a number would re-enter
+   * the upgrade hazard documented above, where the service worker's open connection blocked the v1 -> v2
+   * upgrade and every reader hung on "Loading chapter...".
+   */
+  lastPage?: number;
+  lastPageAt?: number;
+  lastCompleted?: boolean;
   pages: { number: number; width: number | null; height: number | null }[];
 }
 
@@ -128,6 +143,39 @@ export async function listDownloads(): Promise<OfflineChapter[]> {
     const all = (await d.getAllFromIndex('chapters', 'byUser', owner())) as OfflineChapter[];
     return all.sort((a, b) => b.savedAt - a.savedAt);
   } catch { return []; }
+}
+
+/**
+ * Remember where the reader is in a downloaded chapter.
+ *
+ * A no-op for a chapter that was never downloaded -- there is nothing to annotate, and inventing a record
+ * would put a chapter in the Downloads list that holds no pages. Never throws: this rides along with a page
+ * turn and must not be able to interrupt one.
+ */
+export async function noteOfflineProgress(bookId: string, page: number, completed: boolean): Promise<void> {
+  try {
+    const d = await db();
+    const key = chapterKey(bookId);
+    const rec = (await d.get('chapters', key)) as OfflineChapter | undefined;
+    if (!rec) return;
+    // A late write must not rewind a newer one. Progress pings are debounced and can land out of order.
+    const at = Date.now();
+    if (rec.lastPageAt != null && at < rec.lastPageAt) return;
+    await d.put('chapters', { ...rec, lastPage: page, lastPageAt: at, lastCompleted: completed });
+  } catch { /* a convenience, never a blocker */ }
+}
+
+/**
+ * The chapters of one series that are actually on this device, in reading order.
+ *
+ * This is what lets the reader move between chapters offline. `number` is a string off the manifest, so the
+ * sort is numeric -- lexicographically "10" sorts before "9" and the reader would walk them out of order.
+ */
+export async function listSeriesDownloads(seriesId: string): Promise<OfflineChapter[]> {
+  const all = await listDownloads();
+  return all
+    .filter((c) => c.seriesId === seriesId)
+    .sort((a, b) => (parseFloat(a.number) || 0) - (parseFloat(b.number) || 0) || a.savedAt - b.savedAt);
 }
 
 export async function getOfflineChapter(bookId: string): Promise<OfflineChapter | undefined> {

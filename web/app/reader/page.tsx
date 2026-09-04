@@ -9,7 +9,7 @@ import { chapterOutcome } from '@/lib/readerState';
 import { Book, Page, PageInfo, Series } from '@/lib/types';
 import { chapterLabel } from '@/lib/format';
 import { deviceId } from '@/lib/device';
-import { getOfflineChapter, getPageBlob, queueProgress } from '@/lib/downloads';
+import { getOfflineChapter, getPageBlob, queueProgress, noteOfflineProgress, listSeriesDownloads } from '@/lib/downloads';
 import { applyCover, clearCover } from '@/lib/theme';
 import { ReaderPrefs, loadPrefs, savePrefs, loadSeriesPrefs, saveSeriesPrefs, syncPrefsFromServer, THEME_FILTER } from '@/lib/readerPrefs';
 import { ReaderSettings } from '@/components/ReaderSettings';
@@ -49,11 +49,22 @@ async function loadChapter(bookId: string): Promise<Chapter | null> {
 }
 
 function ReaderInner() {
-  const bookId = useSearchParams().get('book') || '';
+  const sp = useSearchParams();
+  const bookId = sp.get('book') || '';
+  /**
+   * A deep link to one page -- what a saved Moment resolves to.
+   *
+   * An explicit `?page=` ALWAYS beats resume-from-progress, and skips the resume read entirely. A deep link is
+   * a request; resume is an inference about where you would rather be. Skipping the read is also what makes a
+   * Moment openable with no network, since the resume call is the thing that throws offline.
+   */
+  const wantPage = Math.max(0, Math.floor(Number(sp.get('page')) || 0));
   const router = useRouter();
 
   const [chapters, setChapters] = useState<Chapter[]>([]);
   const [chapterRefs, setChapterRefs] = useState<ChapterRef[]>([]);
+  /** Whether the chapter list came from the server, from what is downloaded, or nowhere yet. */
+  const [refsFrom, setRefsFrom] = useState<'live' | 'offline' | 'none'>('none');
   const [startPage, setStartPage] = useState(1);
   const [ready, setReady] = useState(false);
   const [ended, setEnded] = useState(false); // reached the last chapter of the series → show Up Next
@@ -79,6 +90,9 @@ function ReaderInner() {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [colW, setColW] = useState(0);
   const didInitScroll = useRef(false);
+  /** The last `chapterId:page` a progress ping was sent for. Declared here rather than beside sendProgress
+   *  because the initial-scroll effect seeds it, and that effect is defined above sendProgress. */
+  const lastSent = useRef('');
   const blobUrls = useRef<Map<string, string>>(new Map());
   const appending = useRef(false);
   const noMore = useRef(false);
@@ -110,6 +124,7 @@ function ReaderInner() {
     didInitScroll.current = false;
     appending.current = false;
     noMore.current = false;
+    setRefsFrom('none');
     completedSent.current.clear();
     prevPos.current = null;
     blobUrls.current.forEach((u) => URL.revokeObjectURL(u));
@@ -122,12 +137,29 @@ function ReaderInner() {
       const outcome = chapterOutcome(first);
       // `|| !first` is for the type narrower's benefit; chapterOutcome already answers 'unavailable' for null.
       if (outcome !== 'ok' || !first) { setFailed(outcome === 'ok' ? 'unavailable' : outcome); setReady(true); return; }
-      // resume page from live progress
-      try {
-        const b = await api<Book>(`/api/books/${bookId}`);
-        if (b.readProgress && !b.readProgress.completed) setStartPage(b.readProgress.page);
-        else setStartPage(1);
-      } catch { setStartPage(1); }
+      // Where to open, in order of authority: an explicit deep link, then the server, then this device.
+      const clamp = (n: number) => Math.max(1, Math.min(n, first.pages.length || 1));
+      if (wantPage > 0) {
+        // Deep link. Deliberately does NOT read progress -- see wantPage above.
+        setStartPage(clamp(wantPage));
+      } else {
+        // The server wins when it answers: progress is cross-device, and the outbox pushes this device's
+        // offline position up to it. The downloaded copy is a fallback, not a peer.
+        const canAsk = !(first.offline && typeof navigator !== 'undefined' && navigator.onLine === false);
+        let resolved = 0;
+        if (canAsk) {
+          try {
+            const b = await api<Book>(`/api/books/${bookId}`);
+            if (b.readProgress && !b.readProgress.completed) resolved = b.readProgress.page;
+            else resolved = 1;
+          } catch { /* fall through to the offline copy */ }
+        }
+        if (!resolved && first.offline) {
+          const off = await getOfflineChapter(bookId);
+          if (off && !off.lastCompleted && off.lastPage) resolved = off.lastPage;
+        }
+        setStartPage(clamp(resolved || 1));
+      }
       if (!alive) return;
       setChapters([first]);
       if (first.offline && first.pages[0] && first.pages[0].width && first.pages[0].height) {
@@ -136,8 +168,18 @@ function ReaderInner() {
       // chapter list for prev/next/jump
       try {
         const list = await api<Page<Book>>(`/api/series/${first.seriesId}/books?size=1000&sort=metadata.numberSort,asc`);
-        if (alive) setChapterRefs(list.content.map((b) => ({ id: b.id, label: chapterLabel(b) })));
-      } catch {}
+        if (alive) { setChapterRefs(list.content.map((b) => ({ id: b.id, label: chapterLabel(b) }))); setRefsFrom('live'); }
+      } catch {
+        // Offline, this is the only list there is. Without it every downloaded chapter reported the end of the
+        // series and prev/next were both dead, because an empty list reads as "there is no next chapter".
+        try {
+          const local = await listSeriesDownloads(first.seriesId);
+          if (alive && local.length) {
+            setChapterRefs(local.map((c) => ({ id: c.bookId, label: c.title || `Chapter ${c.number}` })));
+            setRefsFrom('offline');
+          }
+        } catch {}
+      }
       // reading direction (drives double-spread pair order for RTL manga)
       try {
         const s = await api<Series>(`/api/series/${first.seriesId}`);
@@ -267,6 +309,10 @@ function ReaderInner() {
     if (prefs.mode === 'paged' && scrollRef.current && idx > 0)
       scrollRef.current.scrollLeft = (slideOf[idx] ?? idx) * scrollRef.current.clientWidth;
     setCurrent(idx);
+    // Seed the dedupe key so landing here does not immediately ping progress. Opening a saved Moment is
+    // looking something up, not reading it, and it should not move where you were or add a reading event.
+    const at = flat[idx];
+    if (at) lastSent.current = `${chapters[at.ci]?.id}:${at.number}`;
     didInitScroll.current = true;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready, colW, tops]);
@@ -295,6 +341,10 @@ function ReaderInner() {
     appending.current = true;
     (async () => {
       const last = chapters[chapters.length - 1];
+      // We do not know the shape of this series -- the list never arrived. Stop appending, but do NOT claim
+      // the series is finished: an unknown is not a conclusion. This is the same distinction chapterOutcome
+      // draws between "empty" and "absent", and it is why every offline chapter used to end with a trophy.
+      if (!chapterRefs.length) { noMore.current = true; appending.current = false; return; }
       const idx = chapterRefs.findIndex((c) => c.id === last?.id);
       const next = idx >= 0 ? chapterRefs[idx + 1] : null;
       if (!next) { noMore.current = true; setEnded(true); appending.current = false; return; }
@@ -313,7 +363,6 @@ function ReaderInner() {
   // Two paths: (a) regular page progress, debounced 600ms; (b) chapter COMPLETION, sent immediately —
   // the debounce used to swallow completions when readers scrolled through a chapter's last page without
   // lingering (webtoon fast-scroll can even skip it entirely), so finished chapters never counted as read.
-  const lastSent = useRef('');
   const completedSent = useRef(new Set<string>());
   const prevPos = useRef<{ ci: number } | null>(null);
   const sendProgress = useCallback((chId: string, sId: string, page: number, completed: boolean) => {
@@ -321,6 +370,8 @@ function ReaderInner() {
     // never did, so every live ping took the "no timestamp" leg of the guard and applied unconditionally --
     // a desktop tab left open on chapter 3 could still rewind the phone that had read to chapter 9.
     const payload = { page, completed, seriesId: sId, deviceId: deviceId(), at: Date.now() };
+    // Alongside the write, not instead of it: this is what a downloaded chapter resumes from with no network.
+    void noteOfflineProgress(chId, page, completed);
     api(`/api/books/${chId}/progress`, { method: 'PUT', json: payload }).catch(() => queueProgress({ bookId: chId, ...payload }));
   }, []);
   useEffect(() => {
@@ -579,18 +630,37 @@ function ReaderInner() {
     </motion.div>
   );
 
+  /**
+   * The end of the road -- but WHICH road depends on where the chapter list came from.
+   *
+   * With the live list, reaching the last entry means you finished the series, and the recommendations below
+   * are earned. With only the downloaded list, it means you ran out of what is on this device, which is a
+   * completely different sentence: there may be fifty more chapters waiting online. Saying "you finished" to
+   * someone on a plane is both wrong and deflating, and it is what this reader did after every offline
+   * chapter before the empty-list guard above existed.
+   */
+  const offlineEnd = refsFrom === 'offline';
   const upNextCard = (
     <motion.div initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}
       className="mx-auto w-full max-w-3xl px-6 py-16 text-center">
-      <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-fog-500">{tr('You finished')}</p>
+      <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-fog-500">
+        {offlineEnd ? tr('End of your downloads') : tr('You finished')}
+      </p>
       <h2 className="mt-1.5 font-display text-2xl font-bold text-white">{activeChapter?.seriesTitle || 'this series'}</h2>
+      {offlineEnd && (
+        <p className="mx-auto mt-2 max-w-sm text-sm text-fog-400">
+          {tr('This is the last chapter you have offline. Reconnect to keep reading.')}
+        </p>
+      )}
       <div className="mt-6 flex justify-center gap-2">
         {/* labelled "Back to series", so go to the series -- `back` is history-first and from the home
             Continue rail would land on home instead */}
         <button onClick={() => (seriesHref ? router.push(seriesHref) : back())} className="btn-ghost text-sm">{tr('Back to series')}</button>
-        <button onClick={() => router.push('/')} className="btn-accent text-sm">{tr('Home')}</button>
+        {offlineEnd
+          ? <button onClick={() => router.push('/downloads/')} className="btn-accent text-sm">{tr('Downloads')}</button>
+          : <button onClick={() => router.push('/')} className="btn-accent text-sm">{tr('Home')}</button>}
       </div>
-      {!!upNext?.content?.length && (
+      {!offlineEnd && !!upNext?.content?.length && (
         <div className="mt-12 text-start">
           <SectionTitle>{tr('Because you finished this')}</SectionTitle>
           <Rail>{upNext.content.map((s) => <SeriesCard key={s.id} series={s} />)}</Rail>
