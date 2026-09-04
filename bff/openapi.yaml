@@ -1744,6 +1744,24 @@ paths:
         "404":
           description: Not found, or not visible to this account
   /api/notes:
+    get:
+      tags:
+        - personal
+      summary: Every note the caller has written, newest first, optionally for one series.
+      operationId: getApiNotes
+      parameters:
+        - name: seriesId
+          in: query
+          required: false
+          schema:
+            type: string
+      security:
+        - bearer: []
+      responses:
+        '200':
+          description: OK
+        '401':
+          description: Not authenticated
     post:
       tags:
         - personal

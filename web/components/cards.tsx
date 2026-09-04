@@ -48,7 +48,11 @@ function useTilt() {
  *  `eager` skips lazy-loading for tiles that are on screen at first paint. A lazy <img> waits for layout
  *  before the browser will even queue the request, so on the first rail it is pure added latency. */
 export function SeriesCard({ series, w = 'w-32', eager = false }: { series: Series; w?: string; eager?: boolean }) {
-  const unread = series.booksUnreadCount ?? 0;
+  // yomi.unread first: it is computed per user in lib/enrich.ts. booksUnreadCount is now corrected there too,
+  // but a rail added later that forgets to enrich would fall back to seriesDto's placeholder -- which is the
+  // total chapter count -- so the badge would claim every chapter is unread. Preferring the enriched field
+  // means such a rail shows no badge rather than a wrong one.
+  const unread = series.yomi?.unread ?? series.booksUnreadCount ?? 0;
   const tilt = useTilt();
   return (
     <Link href={`/series/?id=${series.id}`} className={`group shrink-0 ${w} [scroll-snap-align:start]`}>
@@ -118,7 +122,11 @@ export function SeriesTile({ series, eager = false, selectable, selected, onTogg
   /** select mode: the tile stops navigating and toggles instead */
   selectable?: boolean; selected?: boolean; onToggle?: () => void;
 }) {
-  const unread = series.booksUnreadCount ?? 0;
+  // yomi.unread first: it is computed per user in lib/enrich.ts. booksUnreadCount is now corrected there too,
+  // but a rail added later that forgets to enrich would fall back to seriesDto's placeholder -- which is the
+  // total chapter count -- so the badge would claim every chapter is unread. Preferring the enriched field
+  // means such a rail shows no badge rather than a wrong one.
+  const unread = series.yomi?.unread ?? series.booksUnreadCount ?? 0;
   const Wrap: any = selectable ? 'button' : Link;
   const wrapProps = selectable
     ? { type: 'button', onClick: onToggle, className: 'group w-full text-left' }

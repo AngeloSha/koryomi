@@ -1,5 +1,6 @@
 'use client';
 import { Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import Link from 'next/link';
 import { motion } from 'framer-motion';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -13,7 +14,7 @@ import { SeriesCard } from '@/components/cards';
 import { useToast } from '@/components/Toast';
 import { ConfirmDialog, Modal, msgOf } from '@/components/ConfirmDialog';
 import { useAuth, canDownload } from '@/lib/auth';
-import { IcChevronLeft, IcHeart, IcStar, IcPlay, IcDownload, IcCheck, IcTrash, IcSliders } from '@/components/icons';
+import { IcChevronLeft, IcHeart, IcStar, IcPlay, IcDownload, IcCheck, IcTrash, IcSliders, IcMoments } from '@/components/icons';
 import { t as tr } from '@/lib/i18n';
 import { FindMissingDialog } from '@/components/FindMissingDialog';
 
@@ -514,6 +515,14 @@ function SeriesInner() {
     enabled: !!id,
   });
   const { data: similar } = useQuery({ queryKey: ['similar', id], queryFn: () => api<{ content: Series[] }>(`/api/series/${id}/similar`), enabled: !!id });
+  // Saved pages and notes for this series, so the Moments door below is only drawn when it leads somewhere.
+  // A link to an empty page is worse than no link: it teaches the reader the feature is broken.
+  const { data: moments } = useQuery({
+    queryKey: ['bookmarks', id],
+    queryFn: () => api<{ content: unknown[] }>(`/api/bookmarks?seriesId=${encodeURIComponent(id)}`),
+    enabled: !!id,
+  });
+  const momentCount = moments?.content?.length ?? 0;
 
   const [fav, setFav] = useState(false);
   const [rating, setRating] = useState<number | null>(null);
@@ -677,6 +686,12 @@ function SeriesInner() {
       </div>
       <button onClick={() => setCollecting(true)} className="flex items-center justify-center gap-2 rounded-full border border-ink-700 py-2.5 text-sm text-fog-300">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M4 6h16M4 12h16M4 18h10" /><path d="M19 15v6M16 18h6" /></svg>{tr('Add to collection')}</button>
+      {momentCount > 0 && (
+        <Link href={`/moments/?series=${encodeURIComponent(id)}`}
+          className="flex items-center justify-center gap-2 rounded-full border border-ink-700 py-2.5 text-sm text-fog-300">
+          <IcMoments width={16} height={16} />{tr('{n} saved pages', { n: momentCount })}
+        </Link>
+      )}
       <div className="mt-1 flex items-center justify-between">
         <StarRating value={rating} onSet={setStars} />
         <span className="text-xs text-fog-500">{rating ? `${rating}/5` : 'Rate this'}</span>
@@ -704,7 +719,7 @@ function SeriesInner() {
     author ? <span className="text-fog-300">by {author}</span> : null,
     meta?.status ? <span className="capitalize">{meta.status.toLowerCase()}</span> : null,
     series ? <>{series.booksCount} {mostlyVolumes ? 'volumes' : 'chapters'}</> : null,
-    (series?.booksUnreadCount ?? 0) > 0 ? <span className="text-accent">{series!.booksUnreadCount} unread</span> : null,
+    (series?.yomi?.unread ?? series?.booksUnreadCount ?? 0) > 0 ? <span className="text-accent">{tr('{n} unread', { n: series!.yomi?.unread ?? series!.booksUnreadCount })}</span> : null,
     updatedAt ? <>Updated {relativeTime(updatedAt)}</> : null,
     rating ? <span className="text-accent">★ {rating}/5</span> : null,
   ].filter(Boolean);

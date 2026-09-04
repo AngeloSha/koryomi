@@ -6,6 +6,7 @@ import { q, one } from '../lib/db';
 import { content as komga } from '../lib/backend';
 import { viewCtxFor, visible, browsable, browsableIds, Params, type ViewCtx, hideAdult } from '../lib/visibility';
 import { authenticate, userIdOf, roleOf, issueOpdsToken, issueApiToken, listApiTokens, revokeApiToken, API_SCOPES, revokeOpdsToken, opdsTokenStatus, setOpdsShowAdult, OPDS_TOKEN_DAYS } from '../lib/auth';
+import { enrichSeries } from '../lib/enrich';
 import { env } from '../env';
 import { pushEnabled, vapidPublicKey, saveSubscription, removeSubscription } from '../lib/push';
 import { statusFor, saveConnection, disconnect, whoAmI, pushSeriesProgress, pushSeriesProgressAsync, clearTrackerFloor } from '../lib/trackers';
@@ -126,7 +127,10 @@ export default async function personalRoutes(app: FastifyInstance) {
     // Favourite ids come from another table, so they inherit no predicate: filter before resolving.
     const shown = await browsableIds(ids, vc(req));
     const series = (await Promise.all(ids.filter((id) => shown.has(id)).map((id) => komga.series(vc(req), id).catch(() => null)))).filter(Boolean);
-    return { content: series };
+    // Enriched like every other series listing. Without this the favourites rail was the one place in the app
+    // that got raw DTOs: no rating, no new-chapter count, no cover colour, and an unread badge showing the
+    // total chapter count.
+    return { content: await enrichSeries(req, series) };
   });
 
   app.post('/api/favorites', async (req, reply) => {
@@ -203,7 +207,7 @@ export default async function personalRoutes(app: FastifyInstance) {
     // Nothing is removed from the collection itself -- reordering and membership are untouched.
     const shown = await browsableIds(ids, vc(req));
     const series = (await Promise.all(ids.filter((sid) => shown.has(sid)).map((sid) => komga.series(vc(req), sid).catch(() => null)))).filter(Boolean);
-    return { ...col, items: series };
+    return { ...col, items: await enrichSeries(req, series) };
   });
 
   app.post('/api/collections/:id/items', async (req) => {
@@ -312,22 +316,72 @@ export default async function personalRoutes(app: FastifyInstance) {
     return { ok: true };
   });
 
-  app.get('/api/notes/:seriesId', async (req) => {
-    const uid = userIdOf(req);
-    const { seriesId } = req.params as { seriesId: string };
-    return { content: await q('SELECT id, series_id, book_id, body, updated_at FROM notes WHERE user_id = $1 AND series_id = $2 ORDER BY updated_at DESC', [uid, seriesId]) };
+  /**
+   * Every note, newest first, optionally narrowed to one series.
+   *
+   * The by-id route below answers one series; this answers "show me everything I have written", which is what
+   * a notes surface needs and what nothing could ask for before.
+   *
+   * Joined through `browsable()` for the same reason the bookmark listing above is: a note names a series id,
+   * so listing them without the predicate is a way to learn a series you cannot see exists, and what you once
+   * wrote about it.
+   */
+  app.get('/api/notes', async (req) => {
+    const { seriesId } = req.query as { seriesId?: string };
+    const p = new Params();
+    const ctx = vc(req);
+    const uid = p.add(userIdOf(req));
+    const extra = seriesId ? ` AND n.series_id = ${p.add(seriesId)}` : '';
+    return {
+      content: await q(
+        `SELECT n.id, n.series_id, n.book_id, n.body, n.updated_at,
+                COALESCE(so.title, s.title) AS series_title, b.title AS book_title, b.number
+           FROM notes n
+           JOIN lib_series s ON s.id = n.series_id AND ${browsable('s', ctx, p)}
+           LEFT JOIN series_overrides so ON so.series_id = s.id
+           LEFT JOIN lib_books b ON b.id = n.book_id
+          WHERE n.user_id = ${uid}${extra}
+          ORDER BY n.updated_at DESC LIMIT 500`,
+        p.values as any[],
+      ),
+    };
   });
 
-  app.post('/api/notes', async (req) => {
+  app.get('/api/notes/:seriesId', async (req) => {
+    const { seriesId } = req.params as { seriesId: string };
+    const p = new Params();
+    const ctx = vc(req);
+    const uid = p.add(userIdOf(req));
+    // Same join as the listing above. Without it this answered for any series id at all, including one in a
+    // library the viewer has no grant for and one above their age cap.
+    return {
+      content: await q(
+        `SELECT n.id, n.series_id, n.book_id, n.body, n.updated_at
+           FROM notes n
+           JOIN lib_series s ON s.id = n.series_id AND ${browsable('s', ctx, p)}
+          WHERE n.user_id = ${uid} AND n.series_id = ${p.add(seriesId)}
+          ORDER BY n.updated_at DESC`,
+        p.values as any[],
+      ),
+    };
+  });
+
+  app.post('/api/notes', async (req, reply) => {
     const uid = userIdOf(req);
-    const { seriesId, bookId, body } = z.object({ seriesId: z.string().min(1), bookId: z.string().optional(), body: z.string().min(1) }).parse(req.body);
+    const { seriesId, bookId, body } = z.object({ seriesId: z.string().min(1), bookId: z.string().optional(), body: z.string().min(1).max(4000) }).parse(req.body);
+    // Resolve the series through the backend first, exactly as the bookmark write above does: creating a note
+    // against a series the viewer cannot see would otherwise be a write that confirms the id exists.
+    const series = await komga.series(vc(req), seriesId).catch(() => null);
+    if (!series) return reply.code(404).send({ error: 'not_found' });
     return one('INSERT INTO notes (user_id, series_id, book_id, body) VALUES ($1, $2, $3, $4) RETURNING id, series_id, book_id, body, updated_at', [uid, seriesId, bookId ?? null, body]);
   });
 
   app.patch('/api/notes/:id', async (req) => {
     const uid = userIdOf(req);
     const { id } = req.params as { id: string };
-    const { body } = z.object({ body: z.string().min(1) }).parse(req.body);
+    // Same cap as the create above. Without it the 4000-char limit is bypassed by posting a short note and
+    // then editing it to any length at all.
+    const { body } = z.object({ body: z.string().min(1).max(4000) }).parse(req.body);
     return one('UPDATE notes SET body = $3, updated_at = now() WHERE id = $1 AND user_id = $2 RETURNING id, body, updated_at', [id, uid, body]);
   });
 

@@ -9,7 +9,7 @@ import { Page, Series } from '@/lib/types';
 import { triggerRefresh } from '@/lib/refresh';
 import { useToast } from './Toast';
 import { Img } from './ui';
-import { IcSearch, IcSparkle, IcRefresh, IcBell, IcDownload, IcGrid } from './icons';
+import { IcSearch, IcSparkle, IcRefresh, IcBell, IcDownload, IcGrid, IcMoments } from './icons';
 import { t as tr } from '@/lib/i18n';
 
 interface Action { key: string; label: string; hint?: string; icon: React.ReactNode; run: () => void | Promise<void> }
@@ -62,6 +62,7 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
       },
     },
     { key: 'updates', label: 'Updates', hint: 'new chapters', icon: <IcBell width={16} height={16} />, run: () => go('/updates') },
+    { key: 'moments', label: 'Moments', hint: 'pages you saved', icon: <IcMoments width={16} height={16} />, run: () => go('/moments') },
     { key: 'downloads', label: 'Offline downloads', icon: <IcDownload width={16} height={16} />, run: () => go('/downloads') },
     { key: 'browse', label: 'Browse genres', icon: <IcGrid width={16} height={16} />, run: () => go('/browse') },
     {

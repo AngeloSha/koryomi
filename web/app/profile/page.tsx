@@ -20,7 +20,7 @@ import { Switch } from '@/components/Switch';
 import { Modal, msgOf } from '@/components/ConfirmDialog';
 import { Backdrop, ProgressBar } from '@/components/ui';
 import { useToast } from '@/components/Toast';
-import { IcDownload, IcSparkle, IcCheck, IcChevronRight, IcPlay, IcRefresh, IcSettings, IcLogOut } from '@/components/icons';
+import { IcDownload, IcSparkle, IcCheck, IcChevronRight, IcPlay, IcRefresh, IcSettings, IcLogOut, IcMoments } from '@/components/icons';
 import { t as tr, LOCALES, keys } from '@/lib/i18n';
 import { useT } from '@/lib/I18nProvider';
 
@@ -235,7 +235,7 @@ export default function ProfilePage() {
     <div className="min-h-screen-d px-4 lg:px-0">
       {/* ---------------------------------- HERO ---------------------------------- */}
       <header className="bleed relative isolate mb-6 overflow-hidden lg:mt-2 lg:rounded-3xl">
-        {/* Taller than the spec's 46vh on a phone: the identity ladder, the fact pills and three verbs do not
+        {/* Taller than the spec's 46vh on a phone: the identity ladder, the fact pills and four verbs do not
             fit 388px, and the block is bottom-aligned, so anything that does not fit is clipped off the top. */}
         <div className="relative h-[56vh] min-h-[360px] lg:h-[min(420px,52vh)] xl:h-[min(460px,56vh)]">
           {anchorId && (
@@ -325,6 +325,9 @@ export default function ProfilePage() {
                     )}
                     <Link href="/history/" className="btn-ghost px-5 py-2.5 text-sm">
                       <IcRefresh width={16} height={16} />{tr('Reading history')}
+                    </Link>
+                    <Link href="/moments" className="btn-ghost px-5 py-2.5 text-sm">
+                      <IcMoments width={16} height={16} />{tr('Moments')}
                     </Link>
                     <Link href="/wrapped/" className="btn-ghost px-5 py-2.5 text-sm">
                       <IcSparkle width={16} height={16} />{tr('Your Uchiyomi Wrapped')}

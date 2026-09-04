@@ -34,6 +34,15 @@ export const IcHeart = (p: P) => (
 export const IcStar = (p: P) => (
   <svg {...base(p)}><path d="m12 3 2.6 5.6 6 .8-4.4 4.2 1.1 6L12 16.8 6.7 19.6l1.1-6L3.4 9.4l6-.8L12 3Z" /></svg>
 );
+// The same glyph the series page draws inline for "Edit details", promoted so two callers share one path.
+export const IcPencil = (p: P) => (
+  <svg {...base(p)}><path d="M12 20h9" /><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg>
+);
+// A page with a ribbon on it. Deliberately not IcBookmark (a bare ribbon), which the nav already spends on
+// Lists -- two ribbons in one header would read as the same destination twice.
+export const IcMoments = (p: P) => (
+  <svg {...base(p)}><rect x="4" y="3" width="16" height="18" rx="2.5" /><path d="M9.5 3v7l2.5-1.9L14.5 10V3" /></svg>
+);
 export const IcChevronLeft = (p: P) => (
   <svg {...base(p)}><path d="m15 5-7 7 7 7" /></svg>
 );

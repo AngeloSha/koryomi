@@ -13,24 +13,9 @@ import { runtime } from '../lib/runtime';
 import { authenticate, roleOf, userIdOf } from '../lib/auth';
 import { warmHeroBackdrops } from './images';
 import { writeProgress, reachedEnd } from '../lib/progress';
+import { enrichSeries, seriesSeen } from '../lib/enrich';
 
-async function seriesColors(ids: string[]): Promise<Map<string, string>> {
-  if (!ids.length) return new Map();
-  const rows = await q<{ series_id: string; color: string }>(
-    'SELECT series_id, color FROM series_colors WHERE series_id = ANY($1)',
-    [ids],
-  );
-  return new Map(rows.map((r) => [r.series_id, r.color]));
-}
 
-async function seriesSeen(userId: string, ids: string[]): Promise<Map<string, number>> {
-  if (!ids.length) return new Map();
-  const rows = await q<{ series_id: string; seen_books_count: number }>(
-    'SELECT series_id, seen_books_count FROM series_seen WHERE user_id = $1 AND series_id = ANY($2)',
-    [userId, ids],
-  );
-  return new Map(rows.map((r) => [r.series_id, r.seen_books_count]));
-}
 
 // Per-user tracking: the admin reads native Komga progress (so nothing resets and it stays in sync
 // with other Komga clients); sub-accounts get fully independent progress from read_progress.
@@ -56,41 +41,7 @@ async function booksForUser(req: FastifyRequest, books: any[]): Promise<any[]> {
   return overlay(books, await userProgress(userIdOf(req), books.map((b) => b.id)));
 }
 
-async function seriesCompleted(userId: string, seriesIds: string[]): Promise<Map<string, number>> {
-  if (!seriesIds.length) return new Map();
-  const rows = await q<{ series_id: string; c: number }>(
-    `SELECT series_id, count(*)::int AS c FROM read_progress WHERE user_id = $1 AND completed = true AND series_id = ANY($2) GROUP BY series_id`,
-    [userId, seriesIds],
-  );
-  return new Map(rows.map((r) => [r.series_id, r.c]));
-}
 
-async function enrichSeries(req: FastifyRequest, list: any[]): Promise<any[]> {
-  if (!list?.length) return list ?? [];
-  const userId = userIdOf(req);
-  const admin = NATIVE_PROGRESS && roleOf(req) === 'admin';
-  const favs = new Set(
-    (await q<{ series_id: string }>('SELECT series_id FROM favorites WHERE user_id = $1', [userId])).map((r) => r.series_id),
-  );
-  const ratings = new Map(
-    (await q<{ series_id: string; stars: number }>('SELECT series_id, stars FROM ratings WHERE user_id = $1', [userId])).map(
-      (r) => [r.series_id, r.stars],
-    ),
-  );
-  const completed = admin ? null : await seriesCompleted(userId, list.map((s) => s.id));
-  const colors = await seriesColors(list.map((s) => s.id));
-  const seen = await seriesSeen(userId, list.map((s) => s.id));
-  return list.map((s) => ({
-    ...s,
-    color: colors.get(s.id) ?? null,
-    yomi: {
-      favorite: favs.has(s.id),
-      rating: ratings.get(s.id) ?? null,
-      unread: admin ? (s.booksUnreadCount ?? 0) : Math.max(0, (s.booksCount ?? 0) - (completed!.get(s.id) ?? 0)),
-      newCount: seen.has(s.id) ? Math.max(0, (s.booksCount ?? 0) - (seen.get(s.id) ?? 0)) : 0,
-    },
-  }));
-}
 
 const searchBody = z.object({
   query: z.string().optional(),
@@ -558,7 +509,7 @@ export default async function catalogRoutes(app: FastifyInstance) {
     // fact, not the client's, and this lookup used to be skipped exactly when the body carried both a
     // seriesId and completed:true -- the completion ping, and every replay the offline outbox sends. A phone
     // that was offline while an admin merged duplicates then filed finished chapters under the merged-away
-    // id: `seriesCompleted` groups by series_id so they never counted toward the survivor, and the Continue
+    // id: `seriesProgress` (lib/enrich.ts) groups by series_id so they never counted toward the survivor, and the Continue
     // Reading query excludes it via `merged_into IS NULL`, so the series simply vanished from the rail and
     // read as permanently unread. Nothing repaired it afterwards, because the merge's fix-up had already run.
     try {

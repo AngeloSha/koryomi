@@ -4,7 +4,7 @@ import { usePathname } from 'next/navigation';
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Lockup } from './Brand';
-import { IcHome, IcGrid, IcSearch, IcRefresh, IcBell, IcSparkle, IcPlus, IcBookmark } from './icons';
+import { IcHome, IcGrid, IcSearch, IcRefresh, IcBell, IcSparkle, IcPlus, IcBookmark, IcMoments } from './icons';
 import { triggerRefresh } from '@/lib/refresh';
 import { api } from '@/lib/api';
 import { useAuth, canDownload } from '@/lib/auth';
@@ -67,6 +67,13 @@ export function TopNav({ onSearchFocus }: { onSearchFocus?: () => void }) {
           <span className="w-full text-sm text-fog-500">{tr('Search…')}</span>
           <kbd className="shrink-0 rounded-md border border-ink-700 px-1.5 py-0.5 text-[10px] text-fog-500">⌘K</kbd>
         </button>
+        {/* Secondary destination, so it sits in the right-hand cluster with Updates rather than becoming a
+            sixth primary nav item -- the five on the left are the shape of the library, and Moments is a
+            view of what you saved out of it. */}
+        <Link href="/moments" title={tr('Moments')} aria-label={tr('Moments')}
+          className={`grid h-10 w-10 place-items-center rounded-full border border-ink-700 transition hover:text-accent ${path.startsWith('/moments') ? 'text-accent' : 'text-fog-300'}`}>
+          <IcMoments width={19} height={19} />
+        </Link>
         <Link href="/updates" title={tr('Updates')} className="relative grid h-10 w-10 place-items-center rounded-full border border-ink-700 text-fog-300 hover:text-accent">
           <IcBell width={19} height={19} />
           {updCount > 0 && <span className="absolute -right-0.5 -top-0.5 grid h-4 min-w-4 place-items-center rounded-full bg-accent px-1 text-[10px] font-bold text-black">{updCount > 9 ? '9+' : updCount}</span>}

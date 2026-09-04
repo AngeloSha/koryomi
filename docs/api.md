@@ -327,7 +327,8 @@ GET    /api/collections           POST   /api/collections
 GET    /api/collections/:id       PATCH  /api/collections/:id
 DELETE /api/collections/:id       POST   /api/collections/:id/items
 PUT    /api/collections/:id/items DELETE /api/collections/:id/items/:seriesId
-GET    /api/notes/:seriesId       POST   /api/notes
+GET    /api/notes                GET    /api/notes/:seriesId
+POST   /api/notes
 PATCH  /api/notes/:id             DELETE /api/notes/:id
 PUT    /api/ratings/:seriesId     DELETE /api/ratings/:seriesId
 GET    /api/tokens                POST   /api/tokens

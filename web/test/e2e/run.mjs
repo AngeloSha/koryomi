@@ -142,6 +142,60 @@ try {
       : bad(`no page image decoded (${imgs.length} candidates) — the reader shows nothing`);
   }
 
+  // ------------------------------------------------- moments: save a page, find it again, jump back to it
+  //
+  // One check covering three things that only work together: the reader accepts `&page=N` as a deep link,
+  // the bookmark write lands, and the panel thumbnail on /moments actually decodes. Before this the app
+  // could save a page and then had nowhere to show it, so none of the three had ever been exercised.
+  console.log('\n  moments');
+  {
+    const bookId = new URL(page.url()).searchParams.get('book');
+    const counterAt = () => page.evaluate(() => {
+      const m = (document.body.innerText || '').match(/\b(\d+)\s*\/\s*(\d+)\b/);
+      return m ? Number(m[1]) : 0;
+    });
+    if (!bookId) bad('the reader did not put a book id in the URL, so the deep link cannot be tested');
+    else {
+      const WANT = 2;   // every seeded chapter has three pages, so this is neither the first nor the last
+      await page.goto(`${BASE}/reader/?book=${encodeURIComponent(bookId)}&page=${WANT}`, { waitUntil: 'networkidle2', timeout: 60000 });
+      await sleep(6000);
+      const landed = await counterAt();
+      landed === WANT
+        ? ok(`the reader honoured &page=${WANT}`)
+        : bad(`&page=${WANT} landed on page ${landed} — a deep link to a saved page does not work`);
+
+      const marked = await page.evaluate(() => {
+        const b = [...document.querySelectorAll('button')].find((x) => /bookmark this page/i.test(x.getAttribute('aria-label') || ''));
+        if (!b) return 'no bookmark button';
+        b.click();
+        return 'clicked';
+      });
+      if (marked !== 'clicked') bad(`could not bookmark the page: ${marked}`);
+      await sleep(2500);
+
+      await page.goto(`${BASE}/moments`, { waitUntil: 'networkidle2', timeout: 60000 });
+      await sleep(5000);
+      await shot('moments');
+      const tiles = await page.evaluate(() =>
+        [...document.querySelectorAll('a[href*="/reader"] img')].map((i) => ({ w: i.naturalWidth, href: i.closest('a').getAttribute('href') })));
+      const live = tiles.filter((t) => t.w > 0);
+      if (!tiles.length) bad('the page just bookmarked does not appear on /moments at all');
+      else if (!live.length) bad(`/moments has ${tiles.length} tile(s) but none decoded — the panel thumbnails are broken`);
+      else {
+        ok(`/moments shows ${live.length}/${tiles.length} decoded panel(s)`);
+        if (!/[?&]page=/.test(live[0].href)) bad(`a moment links to ${live[0].href} — with no page, it opens at the start of the chapter`);
+        else {
+          await page.goto(BASE + live[0].href.replace(/^\//, '/'), { waitUntil: 'networkidle2', timeout: 60000 });
+          await sleep(6000);
+          const back = await counterAt();
+          back === WANT
+            ? ok(`tapping a moment reopens page ${WANT}`)
+            : bad(`tapping a moment opened page ${back}, not the page ${WANT} that was saved`);
+        }
+      }
+    }
+  }
+
   // ---------------------------------------------------------------- make a library, for real
   //
   // The reason this is here: creating a library was impossible from the UI for the whole life of the
