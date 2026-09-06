@@ -6,8 +6,9 @@ import { rebase } from '../slug';
 import { SourceAdapter, SourceSeries, SourceChapter } from '../types';
 import { cfGet } from '../flaresolverr';
 import { parseWhen } from '../dates';
+import { plainText } from '../../htmlText';
 
-const strip = (s: string) => s.replace(/<[^>]+>/g, '').replace(/&amp;/g, '&').replace(/&#0?39;|&apos;/g, "'").replace(/&quot;/g, '"').replace(/\s+/g, ' ').trim();
+const strip = plainText;
 const norm = (u: string) => u.replace(/^\/\//, 'https://').replace(/&amp;/g, '&').trim();
 const numOf = (s: string) => { const m = s.match(/(\d+(?:\.\d+)?)/); return m ? parseFloat(m[1]) : NaN; };
 

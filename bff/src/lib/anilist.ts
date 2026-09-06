@@ -2,6 +2,8 @@
 // The manga entry often has no banner while its ANIME adaptation does — pull relations in the same query.
 // `id` is the AniList media id — the anchor progress sync writes against, so it is captured here rather
 // than re-resolved later by another fuzzy title search.
+import { plainText } from './htmlText';
+
 const QUERY = `query($s:String){Media(search:$s,type:MANGA,sort:SEARCH_MATCH){id title{romaji english}coverImage{extraLarge}bannerImage relations{edges{node{type bannerImage}}}}}`;
 
 function clean(t: string): string {
@@ -141,7 +143,7 @@ export async function fetchTrendingManhwa(page = 1, retry = 0): Promise<Trending
       // `large` (~230px) is plenty for the rail cards and lighter than extraLarge; loaded direct from AniList's CDN.
       cover: m.coverImage?.large || m.coverImage?.extraLarge || null,
       banner: m.bannerImage ?? null,
-      description: String(m.description || '').replace(/<br\s*\/?>/gi, ' ').replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim(),
+      description: plainText(String(m.description || '').replace(/<br\s*\/?>/gi, ' ')),
       genres: Array.isArray(m.genres) ? m.genres : [],
       score: typeof m.averageScore === 'number' ? m.averageScore : null,
       chapters: typeof m.chapters === 'number' ? m.chapters : null,

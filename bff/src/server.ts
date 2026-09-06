@@ -25,7 +25,7 @@ import { registerApiDocs } from './lib/apiDocs';
 import authRoutes from './routes/auth';
 import adminRoutes from './routes/admin';
 import catalogRoutes from './routes/catalog';
-import imageRoutes from './routes/images';
+import imageRoutes, { authorizeImageRequest } from './routes/images';
 import personalRoutes from './routes/personal';
 import downloadRoutes from './routes/downloads';
 import sourceRoutes from './routes/sources';
@@ -117,6 +117,17 @@ async function main() {
     if (status >= 500) req.log.error(err);
     // fastify 5 types the handler's error as unknown, so the message needs the same narrowing statusCode gets
     return reply.code(status).send({ error: status >= 500 ? 'internal' : (err as Error).message || 'error' });
+  });
+
+  // Byte-serving auth for the WHOLE /img/ prefix, at the root, so it cannot be opted out of.
+  //
+  // This guard used to be a preHandler inside imageRoutes. Fastify encapsulates hooks, so it covered only
+  // the routes that plugin happened to register -- meaning the way to serve unauthenticated image bytes was
+  // simply to add a new plugin. Registered here it applies to every /img/ route regardless of which plugin
+  // owns it, and a plugin that forgets auth inherits it instead of escaping it.
+  app.addHook('preHandler', async (req, reply) => {
+    if (!req.url.startsWith('/img/')) return;
+    await authorizeImageRequest(app, req, reply);
   });
 
   await app.register(authRoutes);

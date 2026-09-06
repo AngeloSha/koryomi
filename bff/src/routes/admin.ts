@@ -616,7 +616,7 @@ export default async function adminRoutes(app: FastifyInstance) {
    * and delete paths use, and the only thing between a query parameter and the disk.
    */
   app.get('/api/admin/libraries/folders', async (req, reply) => {
-    const raw = String((req.query as { path?: string }).path ?? '').replace(/^\/+|\/+$/g, '').trim();
+    const raw = String((req.query as { path?: string }).path ?? '').replace(/^\/+/, '').replace(/\/+$/, '').trim();
     const { readdir } = await import('node:fs/promises');
 
     const names = new Set<string>();
@@ -695,7 +695,7 @@ export default async function adminRoutes(app: FastifyInstance) {
       ageRating: z.number().int().min(0).max(18).nullable().optional(),
     }).safeParse(req.body);
     if (!b.success) return reply.code(400).send({ error: 'bad_request' });
-    const path = b.data.path.replace(/^\/+|\/+$/g, '').trim();
+    const path = b.data.path.replace(/^\/+/, '').replace(/\/+$/, '').trim();
     if (!path || path.includes('..') || path.startsWith('/')) {
       return reply.code(400).send({ error: 'bad_path', message: 'Use a folder path relative to your library root.' });
     }
@@ -751,7 +751,7 @@ export default async function adminRoutes(app: FastifyInstance) {
     }
 
     if (b.data.path !== undefined && id !== 'lib') {
-      const path = b.data.path.replace(/^\/+|\/+$/g, '').trim();
+      const path = b.data.path.replace(/^\/+/, '').replace(/\/+$/, '').trim();
       if (!path || path.includes('..') || path.startsWith('/')) {
         return reply.code(400).send({ error: 'bad_path', message: 'Use a folder path relative to your library root.' });
       }

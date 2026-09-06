@@ -9,6 +9,7 @@ import { linkSeries } from '../lib/trackers';
 import { LIBRARY_ROOT, cbzPageAt } from '../lib/library';
 import { cfSession } from '../lib/sources/flaresolverr';
 import { getSource } from '../lib/sources';
+import { assertPublicHost, isBlockedHost, BlockedAddress } from '../lib/ssrfGuard';
 import { suwayomiUrl, suwayomiImageHeaders } from '../lib/sources/suwayomi/client';
 import { join } from 'path';
 import { readFile } from 'fs/promises';
@@ -58,7 +59,12 @@ export function fetchableCoverUrl(u: string | null | undefined): URL | null {
   if (!u) return null;
   let parsed: URL;
   try { parsed = new URL(u); } catch { return null; }
-  return parsed.protocol === 'http:' || parsed.protocol === 'https:' ? parsed : null;
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null;
+  // And it must not name something on this machine or this network. This is the cheap half of the SSRF
+  // guard -- a literal `http://127.0.0.1:5432/` or `http://yomi-db/` -- kept synchronous so this predicate
+  // stays usable anywhere. The half that needs DNS, and the redirect chain, live in fetchCoverImage.
+  if (isBlockedHost(parsed.hostname)) return null;
+  return parsed;
 }
 
 /** Thrown for a cover value that could never be fetched, so callers can tell it from a transient failure. */
@@ -105,8 +111,34 @@ async function fetchCoverImage(u: string, source?: string): Promise<Buffer> {
       /* image host isn't behind Cloudflare, or took too long — proceed with the referer-only headers */
     }
   }
-  const r = await fetch(u, { headers, signal: AbortSignal.timeout(20000) });
-  if (!r.ok) throw Object.assign(new Error('cover'), { statusCode: r.status });
+  // Redirects are followed BY HAND so every hop is checked. `redirect: 'follow'` would let a public URL
+  // bounce to 169.254.169.254 or yomi-db with no second look, which makes any check on the original URL
+  // alone decorative.
+  let target = parsed;
+  let r: Response;
+  for (let hop = 0; ; hop++) {
+    try {
+      await assertPublicHost(target.hostname);
+    } catch (e) {
+      // Not fetchable, ever -- the same class as a bare source id, so it takes the same placeholder path.
+      // Deliberately indistinguishable from any other unfetchable value: a distinct status here would be
+      // the internal-service oracle this guard exists to remove.
+      if (e instanceof BlockedAddress) throw new UnfetchableCoverUrl(u);
+      throw e;
+    }
+    r = await fetch(target, { headers, redirect: 'manual', signal: AbortSignal.timeout(20000) });
+    if (r.status < 300 || r.status > 399) break;
+    const loc = r.headers.get('location');
+    if (!loc || hop >= 4) throw new UnfetchableCoverUrl(u);
+    let next: URL;
+    try { next = new URL(loc, target); } catch { throw new UnfetchableCoverUrl(u); }
+    if (next.protocol !== 'http:' && next.protocol !== 'https:') throw new UnfetchableCoverUrl(u);
+    target = next;
+  }
+  // A flat 502, never the upstream status. Reflecting it turned this route into a port and path scanner:
+  // 404 meant an open HTTP service, a hang meant a filtered port. `Img` only needs SOME error to fall back
+  // to its direct-URL retry, and 502 is the honest one -- the failure was upstream, not in this request.
+  if (!r.ok) throw Object.assign(new Error('cover'), { statusCode: 502 });
   return Buffer.from(await r.arrayBuffer());
 }
 
@@ -246,27 +278,56 @@ export async function warmHeroBackdrops(ids: string[]): Promise<void> {
   await Promise.all(Array.from({ length: Math.min(WARM_CONCURRENCY, jobs.length) }, worker));
 }
 
+/**
+ * Authorize a request for image BYTES, and bind who is asking.
+ *
+ * ⚠️ REGISTERED AT THE ROOT, IN server.ts, FOR THE WHOLE `/img/` PREFIX -- not as a hook inside this
+ * plugin, which is where it used to live. Fastify hooks are encapsulated, so a plugin-local hook covers
+ * only the routes that plugin registers: any NEW plugin that served something under `/img/` would have
+ * silently served it unauthenticated, and there is nothing in the type system or the tests to notice.
+ * That is not hypothetical -- a downstream fork added an `/img/stream/:sessionId/:pageIndex` byte proxy in
+ * its own plugin and shipped it with no auth at all, having "fixed" auth for its `/api/` half.
+ *
+ * Browser <img> tags cannot set an Authorization header, hence the stateless yomi_img cookie.
+ *
+ * BIND the subject, do not just verify it. This used to call app.jwt.verify(token) and return, so the
+ * decoded sub was thrown away and no image handler had any notion of who was asking. That made every
+ * series-level rule a no-op on the one route family that serves actual bytes: /img/lib/books/:id/page/:n
+ * resolved a file from a book id with no series join, so a hidden series' pages rendered for anyone
+ * holding the id.
+ */
+export async function authorizeImageRequest(
+  app: FastifyInstance,
+  req: FastifyRequest,
+  reply: FastifyReply,
+): Promise<void> {
+  const token = req.cookies?.[IMG_COOKIE];
+  if (token) {
+    try {
+      const claims = app.jwt.verify(token) as { sub?: string };
+      (req as any).viewCtx = await viewCtxFor(claims.sub ?? null);
+      return;
+    } catch { /* fall through to OPDS auth */ }
+  }
+  // OPDS readers load covers/pages with the same HTTP Basic token as the feed
+  const who = await resolveOpdsBasic(req.headers.authorization);
+  if (who) { (req as any).viewCtx = await viewCtxFor(who.userId); return; }
+  return reply.code(401).send({ error: 'unauthorized' });
+}
+
 export default async function imageRoutes(app: FastifyInstance) {
-  // Browser <img> tags can't set Authorization; authorize via the stateless yomi_img cookie.
+  // Belt and braces. server.ts guards the whole /img/ prefix at the root -- that is the protection that
+  // cannot be opted out of, and it is what covers a future plugin serving bytes under /img/. This second
+  // hook exists so imageRoutes is ALSO safe when mounted on its own, which is exactly how the tests mount
+  // it: moving the guard to the root alone silently un-authenticated every one of them.
+  //
+  // Free in production: the root hook has already bound viewCtx by the time this runs, so it returns
+  // immediately rather than verifying the cookie and hitting the database a second time per image.
   app.addHook('preHandler', async (req: FastifyRequest, reply: FastifyReply) => {
-    // BIND the subject, do not just verify it. This used to call app.jwt.verify(token) and return, so the
-    // decoded sub was thrown away and no image handler had any notion of who was asking. That made every
-    // series-level rule a no-op on the one route family that serves actual bytes: /img/lib/books/:id/page/:n
-    // resolved a file from a book id with no series join, so a hidden series' pages rendered for anyone
-    // holding the id.
-    const token = req.cookies?.[IMG_COOKIE];
-    if (token) {
-      try {
-        const claims = app.jwt.verify(token) as { sub?: string };
-        (req as any).viewCtx = await viewCtxFor(claims.sub ?? null);
-        return;
-      } catch { /* fall through to OPDS auth */ }
-    }
-    // OPDS readers load covers/pages with the same HTTP Basic token as the feed
-    const who = await resolveOpdsBasic(req.headers.authorization);
-    if (who) { (req as any).viewCtx = await viewCtxFor(who.userId); return; }
-    return reply.code(401).send({ error: 'unauthorized' });
+    if ((req as any).viewCtx) return;
+    await authorizeImageRequest(app, req, reply);
   });
+
 
   /** The viewer bound above. */
   const vc = (req: FastifyRequest): ViewCtx => (req as any).viewCtx as ViewCtx;

@@ -4,9 +4,10 @@
 import { SourceAdapter, SourceSeries, SourceChapter } from '../types';
 import { cfGet, cfPost } from '../flaresolverr';
 import { parseWhen } from '../dates';
+import { plainText } from '../../htmlText';
 import { seriesSlug, isOwnChapterUrl, rebase } from '../slug';
 
-const strip = (s: string) => s.replace(/<[^>]+>/g, '').replace(/&amp;/g, '&').replace(/\s+/g, ' ').trim();
+const strip = plainText;
 const norm = (u: string) => u.replace(/^\/\//, 'https://').replace(/&amp;/g, '&').trim();
 
 // Madara search-result and latest-listing pages share the same result-card markup, so parse both here.

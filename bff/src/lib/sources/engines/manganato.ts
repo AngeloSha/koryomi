@@ -4,9 +4,10 @@
 import { SourceAdapter, SourceSeries, SourceChapter } from '../types';
 import { cfGet } from '../flaresolverr';
 import { parseWhen } from '../dates';
+import { plainText } from '../../htmlText';
 import { seriesSlug, isOwnChapterUrl, rebase } from '../slug';
 
-const strip = (s: string) => s.replace(/<[^>]+>/g, '').replace(/&amp;/g, '&').replace(/&#0?39;|&apos;/g, "'").replace(/&quot;/g, '"').replace(/\s+/g, ' ').trim();
+const strip = plainText;
 const norm = (u: string) => u.replace(/^\/\//, 'https://').replace(/&amp;/g, '&').trim();
 /** The solver returns JSON inside an HTML <pre>, so the payload arrives entity-escaped. */
 const unescapeHtml = (s: string) => s

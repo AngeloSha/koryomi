@@ -199,7 +199,7 @@ try {
         ok(`/moments shows ${live.length}/${tiles.length} decoded panel(s)`);
         if (!/[?&]page=/.test(live[0].href)) bad(`a moment links to ${live[0].href} — with no page, it opens at the start of the chapter`);
         else {
-          await page.goto(BASE + live[0].href.replace(/^\//, '/'), { waitUntil: 'networkidle2', timeout: 60000 });
+          await page.goto(BASE + live[0].href, { waitUntil: 'networkidle2', timeout: 60000 });
           await sleep(5000);
           await revealChrome();
           const back = await counterAt();

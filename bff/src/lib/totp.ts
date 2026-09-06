@@ -56,7 +56,13 @@ export const otpauthURL = (secret: string, account: string, issuer = 'Uchiyomi')
 
 export const sha256 = (s: string): string => createHash('sha256').update(s).digest('hex');
 
-/** One-time recovery codes (returned plaintext once; only their hashes are stored). */
+/**
+ * One-time recovery codes (returned plaintext once; only their hashes are stored).
+ *
+ * 10 bytes, not 5. These are stored as UNSALTED SHA-256 (routes/auth.ts, alongside the other high-entropy
+ * bearer tokens) and each one bypasses 2FA on its own, so their entropy is the whole defence if the users
+ * table ever leaks. At the old 5 bytes that was 40 bits -- a few GPU-hours offline. 80 bits is not.
+ */
 export function generateRecoveryCodes(n = 8): string[] {
-  return Array.from({ length: n }, () => randomBytes(5).toString('hex').replace(/(.{4})(.{6})/, '$1-$2'));
+  return Array.from({ length: n }, () => randomBytes(10).toString('hex').replace(/(.{5})(.{5})(.{5})(.{5})/, '$1-$2-$3-$4'));
 }
