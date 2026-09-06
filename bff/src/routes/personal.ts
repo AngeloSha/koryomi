@@ -751,7 +751,8 @@ export default async function personalRoutes(app: FastifyInstance) {
 
   app.put('/api/settings', async (req) => {
     const uid = userIdOf(req);
-    const data = z.record(z.any()).parse(req.body ?? {});
+    // zod 4 requires a key schema as well as a value schema; z.record(valueOnly) was a v3 signature.
+    const data = z.record(z.string(), z.any()).parse(req.body ?? {});
     await q(
       `INSERT INTO app_settings (user_id, data) VALUES ($1, $2::jsonb)
        ON CONFLICT (user_id) DO UPDATE SET data = app_settings.data || EXCLUDED.data`,
