@@ -510,5 +510,8 @@
   "Fri": "Ven",
   "Sat": "Sam",
   "{n} behind": "{n} de retard",
-  "{n} behind, as of {ago}": "{n} de retard, à {ago}"
+  "{n} behind, as of {ago}": "{n} de retard, à {ago}",
+  "{n} notes": "{n} notes",
+  "Reading pace, busiest day {n} chapters": "Rythme de lecture, jour le plus actif {n} chapitres",
+  "{n} days of reading, {t} chapters in total": "{n} jours de lecture, {t} chapitres au total"
 }

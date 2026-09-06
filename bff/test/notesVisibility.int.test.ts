@@ -116,6 +116,42 @@ test('notes obey the same visibility rule as everything else', { skip }, async (
       assert.ok(after[0].body.length <= 4000, 'a refused edit still wrote');
     });
 
+    await t.test('THE ERASURE: re-bookmarking a page does not wipe the note on it', async () => {
+      // /moments is the first thing in the app that can write a bookmark note. The reader's star PUTs this
+      // same route with an empty body, and the upsert used to set `note` unconditionally -- so re-starring
+      // an annotated page silently threw the note away. Reintroduce by making the ON CONFLICT clause set
+      // `note = EXCLUDED.note` unconditionally: the note comes back null.
+      const put = (payload: unknown) =>
+        app.inject({ method: 'PUT', url: `/api/bookmarks/b_${OPEN}/7`, headers: auth, payload });
+      assert.equal((await put({ note: 'the panel that made me start this' })).statusCode, 200);
+      assert.equal((await put({})).statusCode, 200, 'the star sends an empty body');
+      const kept = await q<{ note: string | null }>(
+        'SELECT note FROM bookmarks WHERE user_id = $1 AND book_id = $2 AND page = 7', [uid, `b_${OPEN}`]);
+      assert.equal(kept[0].note, 'the panel that made me start this', 'an empty body erased the note');
+      // An explicit null is still a clear -- that is how the editor empties a note.
+      assert.equal((await put({ note: null })).statusCode, 200);
+      const cleared = await q<{ note: string | null }>(
+        'SELECT note FROM bookmarks WHERE user_id = $1 AND book_id = $2 AND page = 7', [uid, `b_${OPEN}`]);
+      assert.equal(cleared[0].note, null, 'an explicit null must still clear it');
+    });
+
+    await t.test('A NOTE CANNOT BORROW A HIDDEN BOOK\'S TITLE', async () => {
+      // `notes.book_id` comes from the client. The listing joins it for `book_title`/`number`; without
+      // `AND b.series_id = n.series_id` that join hands back the title of any book id at all, including
+      // one in a series this account cannot see. Reintroduce by dropping that term from the join.
+      await q('INSERT INTO notes (user_id, series_id, book_id, body) VALUES ($1,$2,$3,$4)',
+        [uid, OPEN, `b_${HIDDEN}`, 'planted with a foreign book id']);
+      const rows = (await app.inject({ method: 'GET', url: '/api/notes', headers: auth })).json().content;
+      const planted = rows.find((n: any) => n.body === 'planted with a foreign book id');
+      assert.ok(planted, 'the note itself is on a visible series, so it is listed');
+      assert.equal(planted.book_title, null, 'a book from another series must not lend its title');
+      assert.equal(planted.number, null);
+      // And the write path refuses it outright.
+      const r = await app.inject({ method: 'POST', url: '/api/notes', headers: auth,
+        payload: { seriesId: OPEN, bookId: `b_${HIDDEN}`, body: 'should be refused' } });
+      assert.equal(r.statusCode, 404, 'a bookId outside the series must not be accepted');
+    });
+
     await t.test('the two read routes agree with each other', async () => {
       const all = (await app.inject({ method: 'GET', url: `/api/notes?seriesId=${OPEN}`, headers: auth })).json().content;
       const byId = (await app.inject({ method: 'GET', url: `/api/notes/${OPEN}`, headers: auth })).json().content;

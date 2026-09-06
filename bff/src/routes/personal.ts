@@ -300,10 +300,19 @@ export default async function personalRoutes(app: FastifyInstance) {
     // cannot see -- which would otherwise be a write that confirms the id exists.
     const book = await komga.book(vc(req), bookId).catch(() => null);
     if (!book) return reply.code(404).send({ error: 'not_found' });
+    // An ABSENT `note` leaves the stored one alone; an explicit `null` clears it.
+    //
+    // These are different requests and the schema already tells them apart -- `nullish()` gives `undefined`
+    // for absent and `null` for explicit -- but `?? null` used to flatten both and the upsert then wrote it
+    // unconditionally. That was harmless while nothing could write a note; /moments now can. The reader's
+    // star PUTs this route with an empty body, so re-starring a page you had annotated erased the note --
+    // and the star re-arms itself whenever its `marks` fetch fails, which is exactly the offline case.
+    const touchesNote = b.data.note !== undefined;
     await q(
       `INSERT INTO bookmarks (user_id, book_id, series_id, page, note)
        VALUES ($1,$2,$3,$4,$5)
-       ON CONFLICT (user_id, book_id, page) DO UPDATE SET note = EXCLUDED.note, created_at = now()`,
+       ON CONFLICT (user_id, book_id, page) DO UPDATE
+         SET created_at = now()${touchesNote ? ', note = EXCLUDED.note' : ''}`,
       [userIdOf(req), bookId, book.seriesId, n, b.data.note ?? null],
     );
     return { ok: true };
@@ -339,7 +348,12 @@ export default async function personalRoutes(app: FastifyInstance) {
            FROM notes n
            JOIN lib_series s ON s.id = n.series_id AND ${browsable('s', ctx, p)}
            LEFT JOIN series_overrides so ON so.series_id = s.id
-           LEFT JOIN lib_books b ON b.id = n.book_id
+           -- The series-id term below is the load-bearing half. The gate above covers the note's SERIES;
+           -- without it this join hands back book_title and number for ANY book id stored in the row,
+           -- including one belonging to a series this account cannot see. The bookmark listing above does
+           -- not need the same term because it derives the series FROM the book, so one gate covers both.
+           -- (No backticks in here: this is inside a JS template literal.)
+           LEFT JOIN lib_books b ON b.id = n.book_id AND b.series_id = n.series_id
           WHERE n.user_id = ${uid}${extra}
           ORDER BY n.updated_at DESC LIMIT 500`,
         p.values as any[],
@@ -373,6 +387,13 @@ export default async function personalRoutes(app: FastifyInstance) {
     // against a series the viewer cannot see would otherwise be a write that confirms the id exists.
     const series = await komga.series(vc(req), seriesId).catch(() => null);
     if (!series) return reply.code(404).send({ error: 'not_found' });
+    // And if a chapter was named, it has to be a chapter OF that series. `bookId` arrives from the client
+    // and nothing else checks it: stored unvalidated, it is an id of the caller's choosing sitting in a row
+    // that later reads join against.
+    if (bookId) {
+      const book = await komga.book(vc(req), bookId).catch(() => null);
+      if (!book || book.seriesId !== seriesId) return reply.code(404).send({ error: 'not_found' });
+    }
     return one('INSERT INTO notes (user_id, series_id, book_id, body) VALUES ($1, $2, $3, $4) RETURNING id, series_id, book_id, body, updated_at', [uid, seriesId, bookId ?? null, body]);
   });
 

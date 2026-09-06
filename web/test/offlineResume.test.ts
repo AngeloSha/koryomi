@@ -11,6 +11,7 @@
 import 'fake-indexeddb/auto';
 import test, { before, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 
 const A = 'user-aaaa-1111';
 const B = 'user-bbbb-2222';
@@ -71,8 +72,12 @@ test('a downloaded chapter remembers where you were', async (t) => {
   await dl.downloadChapter('bk1');
 
   await t.test('THE BUG: the page is recorded alongside the progress ping', async () => {
-    // Reintroduce by deleting the noteOfflineProgress call in the reader's sendProgress: the store never
-    // learns the page, and every downloaded chapter opens at page 1 with no network.
+    // Reintroduce by making noteOfflineProgress drop lastPage/lastPageAt from the record it puts back:
+    // the store never learns the page and every downloaded chapter opens at page 1 with no network.
+    //
+    // ⚠️ This covers the STORE, not the reader. Deleting the call in the reader's sendProgress leaves this
+    // green -- the test calls noteOfflineProgress itself. The call site is pinned by source at the bottom
+    // of this file, the same way downloadsVersion.test.ts pins the schema version.
     await dl.noteOfflineProgress('bk1', 42, false);
     const rec = await dl.getOfflineChapter('bk1');
     assert.equal(rec?.lastPage, 42);
@@ -150,4 +155,15 @@ test('the reader can list what it holds for a series, in reading order', async (
   await t.test('a series with nothing downloaded lists nothing', async () => {
     assert.deepEqual(await dl.listSeriesDownloads('s-nothing'), []);
   });
+});
+
+// The reader has to actually CALL the store, and no test above can see that: they all drive the store
+// directly. A source pin is the cheap honest cover -- the same technique downloadsVersion.test.ts uses to
+// hold the IndexedDB version at 2 -- and it fails the moment the call is deleted or renamed.
+test('the reader records offline progress alongside every progress ping', async () => {
+  const src = await readFile(new URL('../app/reader/page.tsx', import.meta.url), 'utf8');
+  assert.match(src, /noteOfflineProgress\(/,
+    'the reader no longer calls noteOfflineProgress: offline resume is dead however well the store works');
+  assert.match(src, /import \{[^}]*noteOfflineProgress[^}]*\} from '@\/lib\/downloads'/s,
+    'noteOfflineProgress must come from lib/downloads, not a local shim');
 });

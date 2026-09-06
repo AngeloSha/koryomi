@@ -1,6 +1,7 @@
 'use client';
 import { useState, ReactNode, useRef, useEffect, useCallback } from 'react';
 import { genreBackdrop } from '@/lib/art';
+import { t as tr } from '@/lib/i18n';
 
 /** Series backdrop: the BFF composites a wide, blurred, darkened full-bleed ambient from the series art
  *  (AniList banner or portrait cover), so we just render it object-cover — fills the hero on any aspect,
@@ -73,9 +74,15 @@ export function useRtl(): boolean {
  * without it a flick inside the sheet scrolls the chapter behind it instead.
  */
 export function Sheet({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
+  const bodyRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
     document.addEventListener('keydown', onKey);
+    // Open where you already are. A `<select>` -- which the chapter sheet replaced -- scrolls to the
+    // selected option for free; a scrollable div does not, so on chapter 180 of 200 this opened at
+    // chapter 1 and the marked row was several screens down. `aria-current` is the contract.
+    const here = bodyRef.current?.querySelector('[aria-current]');
+    if (here) here.scrollIntoView({ block: 'center' });
     return () => document.removeEventListener('keydown', onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -83,6 +90,7 @@ export function Sheet({ title, onClose, children }: { title: string; onClose: ()
     <div className="fixed inset-0 z-[60] flex items-end justify-center bg-black/70 backdrop-blur-sm"
       role="dialog" aria-modal="true" aria-label={title} onClick={onClose}>
       <div
+        ref={bodyRef}
         onClick={(e) => e.stopPropagation()}
         data-lenis-prevent
         className="glass max-h-[75vh] w-full overflow-y-auto rounded-t-3xl border border-ink-700 p-4
@@ -90,7 +98,7 @@ export function Sheet({ title, onClose, children }: { title: string; onClose: ()
       >
         <div className="mb-3 flex items-center justify-between gap-3">
           <h2 className="font-display text-base font-semibold text-fog-50">{title}</h2>
-          <button onClick={onClose} aria-label="Close"
+          <button onClick={onClose} aria-label={tr('Close')}
             className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-ink-800/80 text-fog-300">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M6 6l12 12M18 6 6 18" /></svg>
           </button>

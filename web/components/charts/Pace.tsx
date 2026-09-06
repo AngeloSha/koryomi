@@ -1,6 +1,7 @@
 'use client';
 import { useMemo } from 'react';
 import { useRtl } from '@/components/ui';
+import { t as tr } from '@/lib/i18n';
 
 const W = 300;   // viewBox units only -- the rendered width is always 100% of the container
 const H = 72;
@@ -45,7 +46,7 @@ export function Pace({ values, window: win = 7 }: { values: number[]; window?: n
   if (!values.length) return null;
   return (
     <svg width="100%" viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" role="img"
-      aria-label={`Reading pace, peak ${peak} in a day`} className="block h-[72px] w-full">
+      aria-label={tr('Reading pace, busiest day {n} chapters', { n: peak })} className="block h-[72px] w-full">
       <path d={area} fill="rgb(var(--accent) / 0.14)" />
       {/* `vector-effect` so the stroke stays 1.5px after the viewBox is stretched to the container width --
           without it a 300-unit box in a 1200px column draws a 6px line. */}

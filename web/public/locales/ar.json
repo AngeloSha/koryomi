@@ -510,5 +510,8 @@
   "Fri": "جمعة",
   "Sat": "سبت",
   "{n} behind": "متأخر بـ {n}",
-  "{n} behind, as of {ago}": "متأخر بـ {n} حتى {ago}"
+  "{n} behind, as of {ago}": "متأخر بـ {n} حتى {ago}",
+  "{n} notes": "{n} ملاحظة",
+  "Reading pace, busiest day {n} chapters": "وتيرة القراءة، أكثر يوم نشاطًا {n} فصلًا",
+  "{n} days of reading, {t} chapters in total": "{n} يومًا من القراءة، {t} فصلًا في المجموع"
 }

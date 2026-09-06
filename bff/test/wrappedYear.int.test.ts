@@ -164,12 +164,18 @@ test('wrapped buckets by the UTC calendar year, and reports a dense year', { ski
       assert.deepEqual(w.topGenreCounts, []);
     });
 
-    await t.test('an absurd ?year= is clamped rather than crashing the date maths', async () => {
-      // make_timestamptz throws outside its range, which would be a 500 driven by a query string.
-      for (const y of ['0', '-5', '99999', 'banana']) {
-        const r = await app.inject({ method: 'GET', url: `/api/wrapped?year=${y}`, headers: auth });
-        assert.equal(r.statusCode, 200, `?year=${y} should not be a server error`);
-      }
+    await t.test('an absurd ?year= is clamped rather than passed to the date maths', async () => {
+      // Assert the ECHOED YEAR, not merely a 200. Every one of these returns 200 with the clamp removed
+      // too -- Postgres happily builds a timestamptz for year -5 or 99999 -- so a status-only check was
+      // decoration. Reintroduce by dropping the Math.max/Math.min: -5 and 99999 come back unclamped.
+      const now = new Date().getUTCFullYear();
+      const yearOf = async (y: string) =>
+        (await app.inject({ method: 'GET', url: `/api/wrapped?year=${y}`, headers: auth })).json().year;
+      assert.equal(await yearOf('-5'), 1970, 'a negative year must clamp to the floor');
+      assert.equal(await yearOf('99999'), 9999, 'an absurd year must clamp to the ceiling');
+      // Unparseable and zero are ABSENT rather than out of range, so they get the default, not the floor.
+      assert.equal(await yearOf('banana'), now);
+      assert.equal(await yearOf('0'), now);
     });
   } finally {
     await app.close();

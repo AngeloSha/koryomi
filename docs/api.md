@@ -214,8 +214,8 @@ curl -X POST -H "Authorization: Bearer $TOK" https://your-server/api/admin/libra
 ## 18+ libraries
 
 A library whose `age_rating` is 18 or higher is left out of every **listing** endpoint by default: the home
-rails, `POST /api/series/search`, genres, collections, favourites, updates, history, bookmarks, wrapped and
-the OPDS feeds. Add `?adult=1` to a request to include it. Admins are not exempt, because this is about what
+rails, `POST /api/series/search`, genres, collections, favourites, updates, history, bookmarks, notes,
+wrapped and the OPDS feeds. Add `?adult=1` to a request to include it. Admins are not exempt, because this is about what
 appears unasked rather than about permission -- `max_age_rating` is the permission and is unrelated.
 
 It is deliberately **not** applied to endpoints that resolve one id you already hold: the series page, its

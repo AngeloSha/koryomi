@@ -144,8 +144,10 @@ you keep scrolling through a series without interruption.
 - **Pinch / double-tap** to zoom (width multiplier).
 - **Themes:** AMOLED black, sepia, or gray, from the reader settings.
 - **Per-series memory:** your zoom/theme choices are remembered per title.
-- **Desktop:** use `[` / `]` (or the chapter dropdown) to move between chapters; the page is centered with
-  comfortable margins.
+- **Jump to a chapter:** the chapter button in the top bar opens the full list, at every screen size. On a
+  desktop `[` / `]` step to the previous/next chapter as well.
+- **Jump to a page:** tap the page counter (`4/18`) in the bottom bar for a thumbnail grid of the chapter.
+- **Desktop:** the page is centered with comfortable margins.
 
 It remembers your scroll position, so closing and reopening drops you right back where you were.
 

@@ -510,5 +510,8 @@
   "Fri": "Vie",
   "Sat": "Sáb",
   "{n} behind": "{n} por detrás",
-  "{n} behind, as of {ago}": "{n} por detrás, a fecha de {ago}"
+  "{n} behind, as of {ago}": "{n} por detrás, a fecha de {ago}",
+  "{n} notes": "{n} notas",
+  "Reading pace, busiest day {n} chapters": "Ritmo de lectura, día más activo {n} capítulos",
+  "{n} days of reading, {t} chapters in total": "{n} días de lectura, {t} capítulos en total"
 }

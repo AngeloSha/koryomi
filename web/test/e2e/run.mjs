@@ -283,7 +283,12 @@ try {
               ? ok(`offline reader decoded ${seen.blobs} downloaded page(s) out of IndexedDB`)
               : bad('offline reader decoded no downloaded page — nothing came out of IndexedDB');
 
-            // Reintroduce by deleting the `chapterRefs.length` guard before `setEnded(true)`.
+            // Reintroduce by deleting BOTH the listSeriesDownloads fallback AND the `chapterRefs.length`
+            // guard. Neither alone turns this red, and it is worth being exact about why: with the
+            // fallback in place chapterRefs holds three chapters, so the guard never runs; with the
+            // fallback gone but the guard present, appending stops without claiming an ending. Only
+            // together do they produce the trophy on a middle chapter. The fallback on its own is
+            // covered by the arrows assertion below, which an empty chapter list cannot satisfy.
             /you finished|finished the series/i.test(seen.body)
               ? bad('offline reader claims the series is finished on a chapter that is not the last')
               : ok('offline reader does not claim the series is over');

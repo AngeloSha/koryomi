@@ -510,5 +510,8 @@
   "Fri": "Пт",
   "Sat": "Сб",
   "{n} behind": "отстаёт на {n}",
-  "{n} behind, as of {ago}": "отстаёт на {n} — данные от {ago}"
+  "{n} behind, as of {ago}": "отстаёт на {n} — данные от {ago}",
+  "{n} notes": "заметок: {n}",
+  "Reading pace, busiest day {n} chapters": "Темп чтения, самый активный день — {n} глав",
+  "{n} days of reading, {t} chapters in total": "{n} дн. чтения, всего {t} глав"
 }

@@ -510,5 +510,8 @@
   "Fri": "五",
   "Sat": "六",
   "{n} behind": "落后 {n} 话",
-  "{n} behind, as of {ago}": "落后 {n} 话（{ago}）"
+  "{n} behind, as of {ago}": "落后 {n} 话（{ago}）",
+  "{n} notes": "{n} 条笔记",
+  "Reading pace, busiest day {n} chapters": "阅读节奏，最活跃的一天 {n} 话",
+  "{n} days of reading, {t} chapters in total": "{n} 天的阅读，共 {t} 话"
 }

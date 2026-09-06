@@ -515,14 +515,23 @@ function SeriesInner() {
     enabled: !!id,
   });
   const { data: similar } = useQuery({ queryKey: ['similar', id], queryFn: () => api<{ content: Series[] }>(`/api/series/${id}/similar`), enabled: !!id });
-  // Saved pages and notes for this series, so the Moments door below is only drawn when it leads somewhere.
-  // A link to an empty page is worse than no link: it teaches the reader the feature is broken.
+  // Saved pages and notes for this series. Both, because this door is the ONLY route to
+  // `/moments/?series=<id>`, and that filtered view is the only place the note composer mounts -- the
+  // nav, the profile verb and the palette all go to the bare `/moments`. Counting bookmarks alone left a
+  // series with notes and no saved pages with no door at all, and a series with neither unable to write
+  // its first note: the same trap the composer's own comment says it avoids one level down.
   const { data: moments } = useQuery({
     queryKey: ['bookmarks', id],
     queryFn: () => api<{ content: unknown[] }>(`/api/bookmarks?seriesId=${encodeURIComponent(id)}`),
     enabled: !!id,
   });
+  const { data: seriesNotes } = useQuery({
+    queryKey: ['notes', id],
+    queryFn: () => api<{ content: unknown[] }>(`/api/notes?seriesId=${encodeURIComponent(id)}`),
+    enabled: !!id,
+  });
   const momentCount = moments?.content?.length ?? 0;
+  const noteCount = seriesNotes?.content?.length ?? 0;
 
   const [fav, setFav] = useState(false);
   const [rating, setRating] = useState<number | null>(null);
@@ -686,12 +695,17 @@ function SeriesInner() {
       </div>
       <button onClick={() => setCollecting(true)} className="flex items-center justify-center gap-2 rounded-full border border-ink-700 py-2.5 text-sm text-fog-300">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M4 6h16M4 12h16M4 18h10" /><path d="M19 15v6M16 18h6" /></svg>{tr('Add to collection')}</button>
-      {momentCount > 0 && (
-        <Link href={`/moments/?series=${encodeURIComponent(id)}`}
-          className="flex items-center justify-center gap-2 rounded-full border border-ink-700 py-2.5 text-sm text-fog-300">
-          <IcMoments width={16} height={16} />{tr('{n} saved pages', { n: momentCount })}
-        </Link>
-      )}
+      {/* Always rendered. It is not a link to an empty page: with nothing saved yet it is the way IN to
+          writing this series' first note, which is the only thing on the other side that can be created. */}
+      <Link href={`/moments/?series=${encodeURIComponent(id)}`}
+        className="flex items-center justify-center gap-2 rounded-full border border-ink-700 py-2.5 text-sm text-fog-300">
+        <IcMoments width={16} height={16} />
+        {momentCount > 0
+          ? tr('{n} saved pages', { n: momentCount })
+          : noteCount > 0
+            ? tr('{n} notes', { n: noteCount })
+            : tr('Add a note')}
+      </Link>
       <div className="mt-1 flex items-center justify-between">
         <StarRating value={rating} onSet={setStars} />
         <span className="text-xs text-fog-500">{rating ? `${rating}/5` : 'Rate this'}</span>
@@ -720,7 +734,7 @@ function SeriesInner() {
     meta?.status ? <span className="capitalize">{meta.status.toLowerCase()}</span> : null,
     series ? <>{series.booksCount} {mostlyVolumes ? 'volumes' : 'chapters'}</> : null,
     (series?.yomi?.unread ?? series?.booksUnreadCount ?? 0) > 0 ? <span className="text-accent">{tr('{n} unread', { n: series!.yomi?.unread ?? series!.booksUnreadCount })}</span> : null,
-    <BehindBit series={series} key="behind" />,
+    behindBit(series),
     updatedAt ? <>Updated {relativeTime(updatedAt)}</> : null,
     rating ? <span className="text-accent">★ {rating}/5</span> : null,
   ].filter(Boolean);
@@ -898,7 +912,13 @@ export default function SeriesPage() {
  * Never red. Red means destructive everywhere else in this palette, and a series having new chapters is the
  * good news on this page.
  */
-function BehindBit({ series }: { series?: Series }) {
+//
+// ⚠️ A FUNCTION, NOT A COMPONENT, and it is called -- `behindBit(series)` -- rather than rendered as
+// `<BehindBit />`. Every entry in `metaBits` is dropped by a trailing `.filter(Boolean)`, and a React
+// element is an object, so it is ALWAYS truthy: as a component this survived the filter even when it
+// rendered nothing, and the row's `i > 0` separator then emitted a stray "·" on every series page whose
+// source has not been checked -- which is most of them.
+function behindBit(series?: Series): ReactNode {
   const src = series?.source;
   if (!src || src.missing == null || src.missing <= 0) return null;      // rules 1-3
   if (series?.autoUpdate === false) return null;                          // rule 4

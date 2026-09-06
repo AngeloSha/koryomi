@@ -510,5 +510,8 @@
   "Fri": "Fr",
   "Sat": "Sa",
   "{n} behind": "{n} im Rückstand",
-  "{n} behind, as of {ago}": "{n} im Rückstand, Stand {ago}"
+  "{n} behind, as of {ago}": "{n} im Rückstand, Stand {ago}",
+  "{n} notes": "{n} Notizen",
+  "Reading pace, busiest day {n} chapters": "Lesetempo, stärkster Tag {n} Kapitel",
+  "{n} days of reading, {t} chapters in total": "{n} Tage Lesen, insgesamt {t} Kapitel"
 }

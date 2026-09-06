@@ -1729,6 +1729,11 @@ paths:
       summary: The caller's notes on a series.
       operationId: getApiNotesSeriesid
       parameters:
+        - name: adult
+          in: query
+          required: false
+          schema:
+            type: string
         - name: seriesId
           in: path
           required: true
@@ -1751,6 +1756,11 @@ paths:
       operationId: getApiNotes
       parameters:
         - name: seriesId
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: adult
           in: query
           required: false
           schema:

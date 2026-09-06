@@ -1,6 +1,7 @@
 'use client';
 import { useMemo } from 'react';
 import { useRtl } from '@/components/ui';
+import { t as tr } from '@/lib/i18n';
 
 const CELL = 12;
 const GAP = 3;
@@ -21,13 +22,16 @@ const DAY_MS = 86_400_000;
  *
  * **RTL reverses the weeks, not the drawing.** Mirroring the `<g>` would mirror the month labels with it.
  */
-export function Heatmap({ values, start, max: maxIn }: {
+export function Heatmap({ values, start, max: maxIn, label }: {
   /** Dense: one entry per day, index 0 is `start`. */
   values: number[];
   /** ISO date (YYYY-MM-DD) of `values[0]`, read as UTC. */
   start: string;
   /** Fix the scale across several heatmaps; defaults to this one's own busiest day. */
   max?: number;
+  /** Accessible name. `role="img"` REQUIRES one, and it also collapses the subtree -- so the per-day
+   *  <title> elements below are invisible to a screen reader and this is the only thing it will hear. */
+  label?: string;
 }) {
   const rtl = useRtl();
   const { cells, weeks, max } = useMemo(() => {
@@ -45,12 +49,14 @@ export function Heatmap({ values, start, max: maxIn }: {
     return { cells, weeks, max };
   }, [values, start, maxIn]);
 
+  const total = values.reduce((a, b) => a + b, 0);
   const w = Math.max(1, weeks * STEP - GAP);
   const h = 7 * STEP - GAP;
   const fmt = (ms: number) => new Date(ms).toISOString().slice(0, 10);
 
   return (
-    <svg width="100%" viewBox={`0 0 ${w} ${h}`} role="img" className="block overflow-visible">
+    <svg width="100%" viewBox={`0 0 ${w} ${h}`} role="img" className="block overflow-visible"
+      aria-label={label ?? tr('{n} days of reading, {t} chapters in total', { n: values.length, t: total })}>
       {cells.map((c) => {
         // The zero cell is a grid line, not a value: a faint fill that never reaches the accent ramp.
         const t = c.v === 0 ? 0 : 0.18 + 0.82 * Math.min(1, c.v / max);
