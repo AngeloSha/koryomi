@@ -123,22 +123,34 @@ async function networkFirst(req, name, max) {
 }
 
 /**
- * Cache-first, but stored under a caller-chosen key rather than the request's full URL.
+ * Network-first, falling back to a copy stored under a caller-chosen key rather than the request's URL.
  *
- * For a static file whose content is independent of its query string, keying by the URL would store one
- * identical copy per distinct query and never reuse any of them. Revalidates in the background so a build
- * that changes the payload is picked up on the next visit rather than pinned forever.
+ * Two decisions, and the second was wrong the first time.
+ *
+ * KEYED BY PATH: for a static file whose content does not depend on its query string, keying by the full
+ * URL stores one identical copy per distinct query and reuses none of them.
+ *
+ * NETWORK-FIRST, not cache-first: `STATIC` is `yomi-static-${VERSION}`, and VERSION tracks changes to THIS
+ * worker, not the app -- it sat at v8 from v0.12.0 to v0.19.0, eight releases that all shipped web changes.
+ * So this cache outlives deploys. Next's RSC payloads name build-hashed chunks, and `/_next/static` is
+ * served immutable and ships only with the build it belongs to, so a cache-first copy would hand a
+ * returning reader the PREVIOUS build's chunk list after every deploy. Next recovers with a hard
+ * navigation, so the cost is an unexpected reload per route rather than a broken app -- but it would recur
+ * on every release, and it couples this cache to the build id with nothing enforcing it.
+ *
+ * Going to the network first costs nothing that was not already being paid: before this rule existed the
+ * request went to the network unconditionally. The cached copy is purely the offline fallback, which is
+ * the only thing it was ever needed for.
  */
-async function cacheFirstByPath(req, key, name) {
+async function networkFirstByPath(req, key, name) {
   const c = await caches.open(name);
-  const hit = await c.match(key);
-  const network = fetch(req)
-    .then((res) => {
-      if (res.ok) c.put(key, res.clone());
-      return res;
-    })
-    .catch(() => hit || Response.error());
-  return hit || network;
+  try {
+    const res = await fetch(req);
+    if (res.ok) c.put(key, res.clone());
+    return res;
+  } catch {
+    return (await c.match(key)) || Response.error();
+  }
 }
 
 async function trimCache(name, max) {
@@ -192,7 +204,7 @@ self.addEventListener('fetch', (e) => {
   // to the network, failed, and Next fell back to a hard navigation. Tapping a chapter inside the running
   // app is the path that actually matters, and it needs nothing but this payload.
   if (url.pathname.endsWith('.txt')) {
-    e.respondWith(cacheFirstByPath(req, url.pathname, STATIC));
+    e.respondWith(networkFirstByPath(req, url.pathname, STATIC));
     return;
   }
 
