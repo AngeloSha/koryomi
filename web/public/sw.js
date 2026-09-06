@@ -10,7 +10,15 @@
 // v8: this worker leaked an IndexedDB connection, which blocked the page's v1 to v2 upgrade of the offline
 // store and hung the reader on "Loading chapter...". The old worker has to be replaced for that to stop, so
 // the bump is load-bearing here rather than cosmetic.
-const VERSION = 'v8';
+// v9: two offline-navigation defects, both invisible while the network is up.
+//   (a) Every successful navigation did `c.put('/', res)`, so the ONE shell entry held whatever page was
+//       loaded last. Offline, any navigation was answered with that unrelated document.
+//   (b) Next's per-route RSC payload (`<route>/index.txt`, a real static file in the export) matched no
+//       rule at all, so the client router's fetch went straight to the network and died offline. Next then
+//       fell back to a hard navigation, which hit (a), and the tab ended up showing the raw payload as text
+//       -- i.e. tapping a DOWNLOADED chapter with no network did not open the reader.
+//   Every v8 SHELL entry is keyed wrongly, so this bump is load-bearing rather than cosmetic.
+const VERSION = 'v9';
 const SHELL = `yomi-shell-${VERSION}`;
 const STATIC = `yomi-static-${VERSION}`;
 const IMG = `yomi-img-${VERSION}`;
@@ -114,6 +122,25 @@ async function networkFirst(req, name, max) {
   }
 }
 
+/**
+ * Cache-first, but stored under a caller-chosen key rather than the request's full URL.
+ *
+ * For a static file whose content is independent of its query string, keying by the URL would store one
+ * identical copy per distinct query and never reuse any of them. Revalidates in the background so a build
+ * that changes the payload is picked up on the next visit rather than pinned forever.
+ */
+async function cacheFirstByPath(req, key, name) {
+  const c = await caches.open(name);
+  const hit = await c.match(key);
+  const network = fetch(req)
+    .then((res) => {
+      if (res.ok) c.put(key, res.clone());
+      return res;
+    })
+    .catch(() => hit || Response.error());
+  return hit || network;
+}
+
 async function trimCache(name, max) {
   const c = await caches.open(name);
   const keys = await c.keys();
@@ -131,17 +158,41 @@ self.addEventListener('fetch', (e) => {
   if (req.mode === 'navigate') {
     e.respondWith(
       (async () => {
+        // Keyed by PATHNAME, not by the full URL and not always '/'.
+        //
+        // Not the full URL, because `/reader/?book=<id>` would store one copy of the same document per
+        // chapter and grow without limit -- in a static export the document for a route does not depend on
+        // its query string. And not always '/', which is what this did: one entry, overwritten by every
+        // navigation, so offline it answered every route with whichever page happened to be loaded last.
+        const key = new URL(req.url).pathname;
         try {
           const res = await fetch(req);
-          const c = await caches.open(SHELL);
-          c.put('/', res.clone());
+          if (res.ok) {
+            const c = await caches.open(SHELL);
+            c.put(key, res.clone());
+            // '/' stays the last-resort fallback for a route never loaded as a document, so keep it fresh.
+            if (key !== '/') c.put('/', res.clone());
+          }
           return res;
         } catch {
           const c = await caches.open(SHELL);
-          return (await c.match('/')) || (await c.match(req)) || Response.error();
+          return (await c.match(key)) || (await c.match('/')) || Response.error();
         }
       })(),
     );
+    return;
+  }
+
+  // Next's per-route RSC payload. In this export it is a real static file (`out/<route>/index.txt`) that
+  // the client router fetches on every client-side navigation, and its content does not vary with the query
+  // string -- so it is cached ONCE PER ROUTE, keyed by pathname, and there are about as many entries as
+  // there are pages.
+  //
+  // This is the whole reason a downloaded chapter would not open offline: without this rule the fetch went
+  // to the network, failed, and Next fell back to a hard navigation. Tapping a chapter inside the running
+  // app is the path that actually matters, and it needs nothing but this payload.
+  if (url.pathname.endsWith('.txt')) {
+    e.respondWith(cacheFirstByPath(req, url.pathname, STATIC));
     return;
   }
 

@@ -307,6 +307,59 @@ try {
     }
   }
 
+  // ------------------------------------------------- and again with the whole network cut, not just the API
+  //
+  // The block above aborts /api/* so it measures the READER. This one cuts everything, which measures the
+  // SERVICE WORKER as well, and it is the case a person actually hits: the app is open, the train goes into
+  // a tunnel, they tap a chapter they downloaded.
+  //
+  // It used to fail outright. Next's client router fetches the route's RSC payload (`/reader/index.txt`, a
+  // real static file in this export); sw.js had no rule for it, so the fetch died, Next fell back to a hard
+  // navigation, and the tab showed the raw payload as text. Reintroduce by deleting the `.txt` branch from
+  // sw.js and this goes back to that.
+  //
+  // ⚠️ A COLD BOOT offline is still not covered and is not expected to pass: reloading the URL from scratch
+  // needs the session re-established, which needs the network. Navigating INSIDE the running app is the
+  // case that works, and it is the one that matters.
+  if (seriesHref) {
+    console.log('\n  offline reading, whole network cut');
+    await page.goto(`${BASE}/downloads`, { waitUntil: 'networkidle2', timeout: 60000 });
+    await sleep(2500);
+    const saved = await page.evaluate(() =>
+      [...document.querySelectorAll('a[href*="/reader"]')].map((a) => a.getAttribute('href')));
+    if (saved.length < 2) console.log('    [ .. ] nothing downloaded, skipping');
+    else {
+      await page.setOfflineMode(true);
+      try {
+        const tapped = await page.evaluate((h) => {
+          const a = [...document.querySelectorAll('a')].find((x) => x.getAttribute('href') === h);
+          if (!a) return false;
+          a.click();
+          return true;
+        }, saved[Math.floor(saved.length / 2)]);
+        if (!tapped) bad('could not tap a downloaded chapter');
+        else {
+          await sleep(9000);
+          await revealChrome();
+          await shot('offline-hard');
+          const seen = await page.evaluate(() => ({
+            path: location.pathname,
+            signedOut: !!document.querySelector('input[type=password]'),
+            raw: (document.body.innerText || '').startsWith('1:'),
+            blobs: [...document.querySelectorAll('img')].filter((i) => i.src.startsWith('blob:') && i.naturalWidth > 0).length,
+          }));
+          if (seen.raw) bad('the tab is showing Next\'s raw RSC payload as text — sw.js has no rule for it');
+          else if (seen.signedOut) bad('tapping a downloaded chapter with no network landed on the sign-in page');
+          else if (!/\/reader/.test(seen.path)) bad(`tapping a downloaded chapter with no network landed on ${seen.path}`);
+          else if (!seen.blobs) bad('the offline reader opened but decoded no downloaded page');
+          else ok(`with the whole network cut, a downloaded chapter opens and decodes ${seen.blobs} page(s)`);
+        }
+      } finally {
+        await page.setOfflineMode(false);
+      }
+    }
+  }
+
   // ---------------------------------------------------------------- make a library, for real
   //
   // The reason this is here: creating a library was impossible from the UI for the whole life of the

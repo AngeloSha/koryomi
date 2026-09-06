@@ -513,5 +513,7 @@
   "{n} behind, as of {ago}": "{n} por detrás, a fecha de {ago}",
   "{n} notes": "{n} notas",
   "Reading pace, busiest day {n} chapters": "Ritmo de lectura, día más activo {n} capítulos",
-  "{n} days of reading, {t} chapters in total": "{n} días de lectura, {t} capítulos en total"
+  "{n} days of reading, {t} chapters in total": "{n} días de lectura, {t} capítulos en total",
+  "Include 18+ libraries in this reader": "Incluir bibliotecas +18 en este lector",
+  "Off by default. Your age limit, if you have one, still applies whatever this says.": "Desactivado por defecto. Tu límite de edad, si tienes uno, sigue aplicándose digas lo que digas aquí."
 }

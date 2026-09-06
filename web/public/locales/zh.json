@@ -513,5 +513,7 @@
   "{n} behind, as of {ago}": "落后 {n} 话（{ago}）",
   "{n} notes": "{n} 条笔记",
   "Reading pace, busiest day {n} chapters": "阅读节奏，最活跃的一天 {n} 话",
-  "{n} days of reading, {t} chapters in total": "{n} 天的阅读，共 {t} 话"
+  "{n} days of reading, {t} chapters in total": "{n} 天的阅读，共 {t} 话",
+  "Include 18+ libraries in this reader": "在此阅读器中包含 18+ 书库",
+  "Off by default. Your age limit, if you have one, still applies whatever this says.": "默认关闭。若你设有年龄限制，无论此项如何设置都仍然生效。"
 }

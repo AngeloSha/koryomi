@@ -513,5 +513,7 @@
   "{n} behind, as of {ago}": "{ago}時点で{n}話 未取得",
   "{n} notes": "メモ {n}件",
   "Reading pace, busiest day {n} chapters": "読書ペース、最も多い日は{n}話",
-  "{n} days of reading, {t} chapters in total": "{n}日間の読書、合計{t}話"
+  "{n} days of reading, {t} chapters in total": "{n}日間の読書、合計{t}話",
+  "Include 18+ libraries in this reader": "このリーダーに18+のライブラリを含める",
+  "Off by default. Your age limit, if you have one, still applies whatever this says.": "既定ではオフです。年齢制限が設定されている場合、この設定にかかわらず適用されます。"
 }

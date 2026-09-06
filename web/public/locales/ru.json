@@ -513,5 +513,7 @@
   "{n} behind, as of {ago}": "отстаёт на {n} — данные от {ago}",
   "{n} notes": "заметок: {n}",
   "Reading pace, busiest day {n} chapters": "Темп чтения, самый активный день — {n} глав",
-  "{n} days of reading, {t} chapters in total": "{n} дн. чтения, всего {t} глав"
+  "{n} days of reading, {t} chapters in total": "{n} дн. чтения, всего {t} глав",
+  "Include 18+ libraries in this reader": "Показывать библиотеки 18+ в этой читалке",
+  "Off by default. Your age limit, if you have one, still applies whatever this says.": "По умолчанию выключено. Ваше возрастное ограничение, если оно есть, действует в любом случае."
 }
