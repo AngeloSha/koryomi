@@ -31,7 +31,7 @@ docker compose --profile split up -d     # adds yomi-bff + yomi-web on http://lo
 - Please don't hardcode new default sources that point at specific sites. The engine system already reaches whole families of sites by URL, which is the point.
 
 ## Tests
-Run them with `npm test` in `bff/` or `web/` (**Node 22+**, matching CI and the Dockerfiles; the runner is
+Run them with `npm test` in `bff/` or `web/` (**Node 24+**, matching CI and the Dockerfiles; the runner is
 Node's built-in test runner via `tsx`,
 so there's nothing extra to install beyond `npm install`).
 
