@@ -19,7 +19,7 @@ updates:
   - package-ecosystem: github-actions
     directory: /
     schedule: { interval: weekly, day: monday }
-  # The base images in the three Dockerfiles (node:22-alpine, nginx:1.27-alpine).
+  # The base images in the three Dockerfiles (node:24-alpine, nginx:1.31-alpine).
   - package-ecosystem: docker
     directory: /
     schedule: { interval: weekly, day: monday }
