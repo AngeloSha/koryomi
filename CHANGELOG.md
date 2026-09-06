@@ -1,5 +1,87 @@
 # Changelog
 
+## v0.20.0 — 2026-09-06
+
+### Moments: the pages you saved, as the pages you saved
+
+The bookmark star in the reader has always written to an API that keeps the series, chapter, page and a note
+for up to five hundred saved pages, and nothing anywhere rendered that list. You could save a page and never
+find it again. `/moments` shows each one as the actual panel, grouped by series, and a note can finally be
+attached to a page or to a series. There are four ways in — the top bar, your profile, the series page and
+the command palette — and deliberately not a seventh item in the bottom nav, which at 390px would leave
+55px per item for German and Russian to clip.
+
+A complete notes API had been sitting unused since the first commit: four routes, a table, an index and a
+foreign key, with no frontend reference anywhere. Giving it a screen is what revealed that two of those
+routes had no visibility check at all — see below.
+
+### The unread badge counts what is unread
+
+Every cover badge in the app showed the total number of chapters in the series and never moved, however much
+you had read. The per-user figure was being computed correctly the whole time and thrown away. Fixed on the
+server rather than in the card, because `booksUnreadCount` is a Komga-shaped field that OPDS clients read
+too. Extracting that logic also closed a gap nobody had noticed: your favourites rail and the contents of a
+collection were returning series with no per-user state at all.
+
+### A reader that pairs, retries and lets you move
+
+A landscape double-page spread — already two pages wide — was pinned beside a portrait page and squeezed to
+half width, and because it filled one slot instead of two, every pair after it in the chapter was off by one.
+Wide pages, and the page before them, now get a slide of their own.
+
+Reader pages were plain images with no error handling, so a single failed request left a broken glyph until
+you reloaded the whole chapter; they now retry once and then offer a button. The chapter list was a dropdown
+marked desktop-only, which meant that on a phone the only way through a series was one chapter at a time —
+it is a sheet at every width now, and it opens where you already are. The page counter opens a thumbnail
+grid of the chapter.
+
+### The Reading Studio, and a Wrapped you can look back through
+
+The profile's Reading tab held four settings cards and no reading. It now has a calendar heatmap, a pace
+line and a weekday breakdown, over 90, 180 or 365 days. `/wrapped` gained a year picker: it had always
+accepted `?year=`, and both callers hardcoded the current one, so every past year was computed on request
+and unreachable.
+
+`/api/wrapped` was bucketing years in the database's timezone and months and weekdays in the server's, while
+`/api/stats` next door used UTC. The two endpoints disagreed with each other, and a chapter finished on New
+Year's Eve counted in the wrong year for every reader west of UTC. Both are UTC now, and the new range
+predicate can use the index where the old one scanned every event an account had ever recorded. "Top genres"
+also meant "the genres of your top five series", each counted once whether you read three chapters of it or
+three hundred; it is twenty series now, weighted by how much you actually read.
+
+### Covers that tint their own card, and how far behind you are
+
+Each card sets one custom property from its cover's dominant colour, and the existing glow and border tokens
+read it, so a card lifts off the page in its own artwork's colour and every surface that does not set it is
+unchanged. The series page can finally tell you a source has chapters you do not, from a number the updater
+has been computing on a schedule for months and showing to nobody. Five rules keep a slow or unreachable
+source from ever reading as alarming, and it is never red.
+
+### Offline reading that works offline
+
+Downloaded chapters opened at page one and announced that you had finished the series after every single
+one, because both the resume page and the chapter list came from calls that cannot succeed offline. Progress
+is now recorded alongside the download, the chapter list falls back to what you actually hold, and an unknown
+list is no longer treated as an ending.
+
+Underneath that, tapping a downloaded chapter with no network did not open the reader at all: the service
+worker had no rule for the per-route payload Next fetches on every navigation, so the request went to the
+network, failed, and the tab ended up showing that payload as raw text. It is cached per route now, and
+navigations no longer all overwrite a single cache entry with whichever page was loaded last. A cold start
+with no network still asks you to sign in — that needs the session, which needs the network.
+
+### Fixed while we were in there
+
+`GET /api/notes` and `POST /api/notes` had no visibility check of any kind: they answered for, and wrote
+against, any series id at all — including one that had been deleted, one in a library your account has no
+grant for, and one above your age cap. The listing also joined any book id stored on a note, so a note could
+borrow the title of a chapter in a series you cannot see. Both are closed, and the note length cap now
+applies on edit as well as on create, where it was previously bypassable by posting a short note and editing
+it.
+
+Saving a bookmark could erase a note written on it, because the star sends no note and the write treated
+"absent" and "cleared" as the same thing.
+
 ## v0.19.0 — 2026-09-04
 
 ### Releases that build on the machine they run on
