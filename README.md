@@ -284,9 +284,11 @@ as a custom app and it appears with an icon like any store app. That manifest le
 engine, so Mihon/Tachiyomi extensions are off there; add `uchiyomi-suwayomi` from
 [`deploy/docker-compose.yml`](deploy/docker-compose.yml) and set `SUWAYOMI_URL` if you want them.
 
-**On Unraid?** Add `https://github.com/AngeloSha/unraid-templates` under *Docker → Add Container →
-Template repositories* and pick *uchiyomi* (a Community Applications listing is requested). One container,
-database included; set PUID/PGID to the owner of your library for renames. The template is mirrored here as
+**On Unraid?** 
+Add `https://github.com/AngeloSha/unraid-templates` to
+`/boot/config/plugins/dockerMan/template-repos`, then go to *Docker → Add Container* and select *uchiyomi*
+from the template dropdown (a Community Applications listing is requested). One container, database included;
+set PUID/PGID to the owner of your library for renames. The template is mirrored here as
 [`deploy/unraid/uchiyomi.xml`](deploy/unraid/uchiyomi.xml).
 
 **On Umbrel?** Uchiyomi is [submitted to the Umbrel App Store](https://github.com/getumbrel/umbrel-apps/pull/6055); until it is listed, the package at
