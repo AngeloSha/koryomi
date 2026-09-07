@@ -203,3 +203,57 @@ jobs:
             echo "$img  version=$v  latest=$l"
             [ -n "$v" ] && [ "$v" = "$l" ] || { echo "::error::$img latest does not match ${GITHUB_REF_NAME}"; exit 1; }
           done
+
+  # A tag publishes the images. It does NOT publish a GitHub Release -- those are a separate object, and for
+  # the whole life of this project they were created by hand. Three in a row were missed (v0.22.0, v0.23.0,
+  # v0.24.0 all shipped and deployed while the Releases page still said v0.21.0), which is not a cosmetic
+  # gap: the README's "latest release" badge reads Releases and not tags, so the front page advertised a
+  # version three behind, and docs/INSTALL.md tells people to watch Releases to know when to pull.
+  #
+  # It runs after `merge`, never before: a Release announcing images that failed to publish is worse than no
+  # Release. It is NOT gated on `latest` -- a prerelease tag should still get its own entry, marked as one.
+  release:
+    needs: merge
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      # The only job that writes to the repo. Scoped here rather than widened at the top of the file, so
+      # nothing else in this workflow gains the ability to push.
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+      - name: Publish the GitHub Release for ${{ github.ref_name }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          ver="${GITHUB_REF_NAME#v}"
+          # The notes are the CHANGELOG section for this version -- one source of truth, so a release cannot
+          # describe something different from the file everyone reads. `--generate-notes` is the fallback for
+          # a tag with no entry (an rc, typically), rather than publishing an empty body.
+          flag='${{ contains(github.ref_name, '-') && '--prerelease' || '--latest' }}'
+          awk -v v="$ver" '$0 ~ "^## v" v " " {f=1; next} /^## v/ {f=0} f' CHANGELOG.md > notes.md || true
+
+          # Idempotent on purpose. A release run gets re-run by hand often enough here -- a flaked leg, a
+          # registry hiccup -- and `gh release create` fails outright on a tag that already has one, which
+          # would turn a successful retry into a red pipeline for no reason.
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            echo "release already exists; updating it in place"
+            action=edit
+          else
+            action=create
+          fi
+
+          if [ -s notes.md ]; then
+            title=$(awk '/^### /{sub(/^### /,""); print; exit}' notes.md)
+            echo "notes: $(wc -l < notes.md) lines from CHANGELOG.md"
+            gh release "$action" "$GITHUB_REF_NAME" \
+              --title "$GITHUB_REF_NAME: ${title:-$GITHUB_REF_NAME}" \
+              --notes-file notes.md $flag
+          elif [ "$action" = create ]; then
+            # An rc tag, typically: no CHANGELOG entry yet. Better a generated body than an empty one.
+            echo "::warning::no CHANGELOG section for $ver; generating notes from commits"
+            gh release create "$GITHUB_REF_NAME" --generate-notes $flag
+          else
+            echo "::warning::no CHANGELOG section for $ver; leaving the existing release untouched"
+          fi

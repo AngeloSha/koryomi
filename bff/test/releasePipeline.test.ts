@@ -54,6 +54,28 @@ test('arm64 is built on an arm64 runner, never emulated, and merged into one ind
   assert.deepEqual(wf.jobs.build.strategy.matrix.arch, ['amd64', 'arm64']);
 });
 
+test('a tag publishes a GitHub Release, not just images', () => {
+  const y = read('.github/workflows/release.yml');
+  const wf = parseYaml(y);
+  // ⚠️ This was manual for the whole life of the project, and three releases in a row were missed --
+  // v0.22.0, v0.23.0 and v0.24.0 all shipped, published and deployed while the Releases page still said
+  // v0.21.0. Not cosmetic: the README's "latest release" badge reads Releases rather than tags, so the
+  // front page advertised a version three behind, and docs/INSTALL.md tells people to watch Releases to
+  // know when there is something to pull.
+  assert.ok(wf.jobs.release, 'nothing publishes a GitHub Release, so tags will silently stop announcing');
+  // After the images exist. A release announcing a publish that failed is worse than no release.
+  assert.equal(wf.jobs.release.needs, 'merge');
+  // NOT gated on `latest`: a prerelease tag should still get an entry, marked as one.
+  assert.ok(!wf.jobs.release.if, 'the release job must run for prerelease tags too');
+  assert.match(code(y), /--prerelease/, 'an rc tag would be published as a normal release');
+  // The notes come from the changelog, so a release cannot describe something other than the file
+  // everyone reads. Reintroduce by switching to --generate-notes unconditionally.
+  assert.match(code(y), /CHANGELOG\.md/, 'the release notes do not come from the changelog');
+  // Write access is scoped to this one job rather than widened at the top of the file.
+  assert.equal(wf.jobs.release.permissions?.contents, 'write');
+  assert.equal(wf.permissions.contents, 'read', 'the workflow as a whole must not gain write access');
+});
+
 test('dependencies and actions are watched weekly, grouped so CI is not run thirty times', () => {
   const d = parseYaml(read('.github/dependabot.yml'));
   const npm = d.updates.filter((u: any) => u['package-ecosystem'] === 'npm').map((u: any) => u.directory).sort();
