@@ -73,6 +73,11 @@ into a single image.** Point it at your library, install an extension or paste a
   correct a chapter's number when the filename lied about it. Metadata you edit survives every rescan. If you
   run it as the owner of your library (`PUID`), it can also rename folders and delete chapter files.
 - **Command palette:** press **Ctrl+K** anywhere — instant series search, quick actions, recent items.
+- **Moments:** star a page in the reader and it lands on **/moments** as the panel itself, grouped by series,
+  with a note you can attach to a page or to a whole series. Reachable from the top bar, your profile, the
+  series page and the command palette.
+- **Reading Studio & Wrapped:** your own reading, measured — a year heat-map, chapters by month and by
+  weekday, your busiest day, top series and the genres you actually read.
 - **Collections:** hand-curated reading lists with accent colors, reorderable, surfaced on Home.
 - **Discover:** a wall of **what your sources just published**, grouped by language and led by full-bleed key
   art for what the world is reading. Each source gets **eight seconds** and is cached, so one slow site cannot
@@ -455,7 +460,8 @@ Actively developed. On deck:
 
 Recently shipped: 🔞 an 18+ library kept off every browsing surface until you ask for it, 🧒 age ratings with a
 per-member limit, 🚫 a per-member permission to add series at all, 🧭 Discover rebuilt around what your sources
-just published, 🌍 nine languages with right-to-left, 🔖 bookmarks, 📄 PDF and image EPUB, 📚 multiple libraries
+just published, 🌍 nine languages with right-to-left, 🔖 bookmarks and 🖼️ Moments, 📊 the Reading Studio and
+Wrapped, 📄 PDF and image EPUB, 📚 multiple libraries
 with per-member access, 🔍 library filters and bulk actions, ✏️ editable series and chapter metadata that
 survives a rescan, 📁 any folder layout, 🗂️ series delete / restore / merge, 🔎 content fingerprinting so renamed
 folders are recognised, 🔗 progress sync to AniList, MyAnimeList and Kitsu, 🔔 push notifications, 📡 OPDS with
