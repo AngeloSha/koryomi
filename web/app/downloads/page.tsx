@@ -99,8 +99,11 @@ export default function DownloadsPage() {
 
       {loaded && items.length === 0 ? (
         <EmptyState art={ART.emptyDownloads} title={tr('No downloads yet')}
-          sub="Tap the download icon on any chapter — or turn on Smart downloads — to read offline. Perfect for flights and commutes."
-          cta={{ href: '/library', label: 'Browse library' }} />
+          sub={online
+            ? 'Tap the download icon on any chapter — or turn on Smart downloads — to read offline. Perfect for flights and commutes.'
+            : 'Nothing is saved on this device, and there is no connection to fetch anything with. Reconnect and download a chapter to read it here.'}
+          cta={/* no cta offline: it points at the library, which is built entirely from the server */
+            online ? { href: '/library', label: 'Browse library' } : undefined} />
       ) : (
         <div className="px-5 pt-4">
           {Object.entries(groups).map(([series, chapters]) => (

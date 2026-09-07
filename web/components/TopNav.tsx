@@ -28,9 +28,12 @@ export function TopNav({ onSearchFocus }: { onSearchFocus?: () => void }) {
   const path = usePathname();
   const qc = useQueryClient();
   const toast = useToast();
-  const { user } = useAuth();
+  const { user, status } = useAuth();
+  const offline = status === 'offline';
   const [refreshing, setRefreshing] = useState(false);
-  const { data: upd } = useQuery({ queryKey: ['updates'], queryFn: () => api<{ content: any[] }>('/api/updates'), staleTime: 120000 });
+  // `enabled`, not a conditional call: hooks must run in the same order every render. Offline this would be
+  // a request at a dead network, and the browser harness counts every console error.
+  const { data: upd } = useQuery({ queryKey: ['updates'], queryFn: () => api<{ content: any[] }>('/api/updates'), staleTime: 120000, enabled: !offline });
   const updCount = upd?.content?.length ?? 0;
 
   const refresh = async () => {
@@ -54,8 +57,9 @@ export function TopNav({ onSearchFocus }: { onSearchFocus?: () => void }) {
           {(canDownload(user) ? links : links.filter((l) => l.href !== '/discover')).map(({ href, label, Icon, match }) => {
             const active = match(path);
             return (
-              <Link key={href} href={href}
-                className={`flex items-center gap-2 whitespace-nowrap rounded-full px-3.5 py-2 text-sm font-medium transition ${active ? 'bg-accent-soft text-accent' : 'text-fog-400 hover:text-fog-100'}`}>
+              <Link key={href} href={href} aria-disabled={offline || undefined}
+                onClick={offline ? (e) => e.preventDefault() : undefined}
+                className={`flex items-center gap-2 whitespace-nowrap rounded-full px-3.5 py-2 text-sm font-medium transition ${active ? 'bg-accent-soft text-accent' : 'text-fog-400 hover:text-fog-100'}${offline ? ' pointer-events-none opacity-35' : ''}`}>
                 <Icon width={18} height={18} /> {tr(label)}
               </Link>
             );

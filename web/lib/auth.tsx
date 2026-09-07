@@ -1,6 +1,7 @@
 'use client';
 import { createContext, useContext, useEffect, useRef, useState, ReactNode } from 'react';
 import { api, refreshSession, setAccessToken, setCurrentUser } from './api';
+import { readOfflineIdentity, writeOfflineIdentity, clearOfflineIdentity, OfflineIdentity } from './offlineIdentity';
 import { deviceId, deviceName } from './device';
 import { clearShownOnce } from './shownOnce';
 
@@ -15,7 +16,20 @@ interface User {
   avatar?: Avatar;
   settings: Record<string, any>;
 }
-type Status = 'loading' | 'authed' | 'anon';
+/**
+ * ⚠️ `offline` is a distinct state, not `authed` with a flag beside it.
+ *
+ * `status` is compared against `'authed'` in several places that mean "the server is reachable and this
+ * session is live" -- deciding whether to run the smart-offline downloader, whether the command palette is
+ * armed. A boolean would silently widen every one of those, and the downloader would start firing at a dead
+ * network. A separate member keeps each existing comparison meaning what it already meant, and makes the
+ * type checker point at anything that now needs a decision.
+ *
+ * Only BOOT may enter `offline`. The keep-warm interval and the reconnect handler promote (`offline` ->
+ * `authed`) or eject (-> `anon`); they never demote, or one failed ping on flaky Wi-Fi would swap the whole
+ * chrome out from under someone mid-browse.
+ */
+type Status = 'loading' | 'authed' | 'offline' | 'anon';
 
 interface AuthCtx {
   status: Status;
@@ -94,51 +108,119 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const timer = useRef<any>(null);
 
+  /**
+   * The server has confirmed who we are. One function, because four paths reach this state (boot, login,
+   * first-run setup, reconnect) and a field added to one of them would otherwise be missing from the others.
+   *
+   * `setCurrentUser` comes FIRST, before `setUser` and before anything renders: the reader consults the
+   * offline store without waiting for React, so the identity has to be in place the moment the session is.
+   */
+  const adoptAuthed = (u: User, exp?: number) => {
+    setCurrentUser(u.id);
+    void tellWorkerUser(u.id);
+    writeOfflineIdentity(u, exp);
+    setUser(u);
+    applyAccent(u.settings);
+    setStatus('authed');
+  };
+
+  /** No server, but this device remembers an unexpired session. Open the downloads rather than the sign-in. */
+  const adoptOffline = (saved: OfflineIdentity) => {
+    setCurrentUser(saved.id);
+    // ⚠️ Not optional. The worker starts each launch with no idea who is signed in, and its background flush
+    // skips every event stamped with an owner while that is true -- so without this line, reading queued
+    // offline would be dropped silently by the one flush that runs after the app is closed.
+    void tellWorkerUser(saved.id);
+    setUser({
+      id: saved.id, username: saved.username, displayName: saved.displayName,
+      role: saved.role, perms: saved.perms, avatar: saved.avatar,
+      settings: saved.accent ? { accent: saved.accent } : {},
+    });
+    applyAccent({ accent: saved.accent });
+    setStatus('offline');
+  };
+
+  /**
+   * Everything `logout` does locally, minus the server call.
+   *
+   * Shared so that the rejection path cannot drift from the sign-out path: if a future field needs clearing,
+   * forgetting it in one of the two would leave the next person on a shared tablet holding the previous
+   * person's identity -- and with it, the key to their downloads.
+   */
+  const clearLocalSession = async () => {
+    setAccessToken(null);
+    setCurrentUser(null);
+    clearOfflineIdentity();
+    setUser(null);
+    setStatus('anon');
+    // Secrets the server only ever sends once are held outside React so a remount cannot destroy them.
+    // That store has to end with the session, or a shared machine hands the next person a live token.
+    clearShownOnce();
+    void tellWorkerUser(null);
+    await purgeAccountCaches();
+  };
+
   useEffect(() => {
     let alive = true;
-    (async () => {
-      const ok = await refreshSession();
+
+    /**
+     * Ask the server who we are, and act on which of the three answers came back.
+     *
+     * Used for the keep-warm interval, for `online`, and when an installed app is brought back to the
+     * foreground -- which happens far more often than it is launched. It only ever promotes or ejects.
+     */
+    const revalidate = async () => {
+      const r = await refreshSession();
       if (!alive) return;
-      if (ok) {
-        try {
-          const me = await api<User>('/auth/me');
-          // Before setUser, and before anything renders: the reader reads the offline store without waiting
-          // for React, so the identity has to be in place the moment the session is known. This is the path
-          // that runs on every page load, which makes it the one that matters most.
-          setCurrentUser(me.id);
-          void tellWorkerUser(me.id);
-          setUser(me);
-          applyAccent(me.settings);
-          setStatus('authed');
-        } catch {
-          setCurrentUser(null);
-          setStatus('anon');
-        }
-      } else {
-        setCurrentUser(null);
-        setStatus('anon');
+      if (r.kind === 'authed') adoptAuthed(r.user, r.refreshExpiresAt);
+      else if (r.kind === 'rejected') await clearLocalSession();
+      // 'unreachable': stay exactly as we are. A flaky network is not a sign-out.
+    };
+
+    (async () => {
+      const saved = readOfflineIdentity();
+      // Before the first paint, and before any component can read IndexedDB.
+      if (saved) setCurrentUser(saved.id);
+
+      // A definitive negative. `navigator.onLine === false` cannot be wrong in this direction, and without
+      // this short-circuit a captive portal or a DNS black hole holds the splash screen -- and therefore the
+      // whole app -- for however long `fetch` takes to give up, which on a plane is most of a minute.
+      if (saved && typeof navigator !== 'undefined' && navigator.onLine === false) {
+        adoptOffline(saved);
+        void revalidate(); // onLine can still lie the other way; harmless when it fails
+        return;
       }
+
+      const r = await refreshSession();
+      if (!alive) return;
+      if (r.kind === 'authed') adoptAuthed(r.user, r.refreshExpiresAt);
+      else if (r.kind === 'rejected') await clearLocalSession();
+      else if (saved) adoptOffline(saved);
+      else { setCurrentUser(null); setStatus('anon'); }
     })();
+
     // keep the access token warm
-    timer.current = setInterval(() => refreshSession(), 12 * 60 * 1000);
+    timer.current = setInterval(revalidate, 12 * 60 * 1000);
+    const onVisible = () => { if (document.visibilityState === 'visible') void revalidate(); };
+    window.addEventListener('online', revalidate);
+    document.addEventListener('visibilitychange', onVisible);
     return () => {
       alive = false;
       clearInterval(timer.current);
+      window.removeEventListener('online', revalidate);
+      document.removeEventListener('visibilitychange', onVisible);
     };
   }, []);
 
   const login = async (username: string, password: string, code?: string): Promise<{ ok: boolean; totp?: boolean; error?: string }> => {
     try {
-      const res = await api<{ accessToken: string; user: User }>('/auth/login', {
+      const res = await api<{ accessToken: string; user: User; refreshExpiresAt?: number }>('/auth/login', {
         json: { username, password, code, deviceId: deviceId(), deviceName: deviceName() },
       });
       await purgeAccountCaches(); // whoever used this device last does not get to answer this account's requests
       setAccessToken(res.accessToken);
-      setCurrentUser(res.user.id);
-      void tellWorkerUser(res.user.id);
-      setUser(res.user);
-      applyAccent(res.user.settings);
-      setStatus('authed');
+      // After the purge, never before: the identity write must not be the thing the purge sweeps away.
+      adoptAuthed(res.user, res.refreshExpiresAt);
       return { ok: true };
     } catch (e: any) {
       let body: any = {};
@@ -158,13 +240,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // First-run setup: create the very first admin (when the server has no users), then log straight in.
   const firstRunSetup = async (username: string, password: string): Promise<{ ok: boolean; error?: string }> => {
     try {
-      const res = await api<{ accessToken: string; user: User }>('/api/setup', { json: { username, password } });
+      const res = await api<{ accessToken: string; user: User; refreshExpiresAt?: number }>('/api/setup', { json: { username, password } });
       setAccessToken(res.accessToken);
-      setCurrentUser(res.user.id);
-      void tellWorkerUser(res.user.id);
-      setUser(res.user);
-      applyAccent(res.user.settings);
-      setStatus('authed');
+      adoptAuthed(res.user, res.refreshExpiresAt);
       return { ok: true };
     } catch (e: any) {
       let body: any = {};
@@ -177,14 +255,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       await api('/auth/logout', { method: 'POST' });
     } catch {}
-    setAccessToken(null);
-    setCurrentUser(null);
-    setUser(null);
-    setStatus('anon');
-    // Secrets the server only ever sends once are held outside React so a remount cannot destroy them.
-    // That store has to end with the session, or a shared machine hands the next person a live token.
-    clearShownOnce();
-    await purgeAccountCaches();
+    // ⚠️ Signing out ENDS THE OFFLINE GRACE. `clearLocalSession` drops the saved identity, so the next cold
+    // boot on this device -- online or not -- gets the sign-in screen, and the downloads in IndexedDB become
+    // unaddressable again because nothing knows their owner. The chapters are deliberately left where they
+    // are: they are scoped by owner, not secret, and signing back in makes them readable again without a
+    // re-download. Reintroduce by clearing the session without the identity, and the next person to pick up
+    // the tablet inherits the previous person's offline library.
+    await clearLocalSession();
   };
 
   const setSettings = (partial: Record<string, any>) => {

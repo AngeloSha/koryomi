@@ -23,7 +23,11 @@ const items = [
 
 export function BottomNav() {
   const path = usePathname();
-  const { user } = useAuth();
+  const { user, status } = useAuth();
+  // Offline, only Downloads leads anywhere: every other tab is assembled from the server. They stay VISIBLE
+  // and go inert rather than disappearing -- a nav that loses four of its six items reads as the app having
+  // broken, which is the opposite of what an offline mode should communicate.
+  const offline = status === 'offline';
   // An account that may not add series has nothing to do on Discover -- every route the page calls is now
   // refused for it -- so the tab is a promise the app cannot keep. The page itself says so if you type it.
   const shown = canDownload(user) ? items : items.filter((i) => i.href !== '/discover');
@@ -33,8 +37,11 @@ export function BottomNav() {
         <div className="glass grad-border flex items-center justify-around rounded-3xl px-2 py-1.5 shadow-lift">
           {shown.map(({ href, label, Icon, match }) => {
             const active = match(path);
+            const dead = offline && href !== '/downloads';
             return (
-              <Link key={href} href={href} className="group relative flex flex-1 flex-col items-center gap-1 py-2">
+              <Link key={href} href={href} aria-disabled={dead || undefined}
+                onClick={dead ? (e) => e.preventDefault() : undefined}
+                className={`group relative flex flex-1 flex-col items-center gap-1 py-2${dead ? ' pointer-events-none opacity-35' : ''}`}>
                 {active && (
                   <motion.span layoutId="navpill" className="absolute inset-x-2 inset-y-1 rounded-2xl bg-accent-soft" transition={{ type: 'spring', stiffness: 420, damping: 34 }} />
                 )}

@@ -136,6 +136,16 @@ export async function isDownloaded(bookId: string): Promise<boolean> {
   } catch { return false; }
 }
 
+/**
+ * The ids of every series with at least one chapter saved on this device.
+ *
+ * One index read for a whole grid, rather than `isDownloaded()` per tile -- a library page renders hundreds
+ * of cards, and that would be hundreds of IndexedDB round trips to answer one boolean each.
+ */
+export async function downloadedSeriesIds(): Promise<Set<string>> {
+  return new Set((await listDownloads()).map((c) => c.seriesId));
+}
+
 export async function listDownloads(): Promise<OfflineChapter[]> {
   try {
     const d = await db();
@@ -298,6 +308,12 @@ export interface ProgressEvent {
 }
 
 export async function queueProgress(ev: ProgressEvent): Promise<void> {
+  // ⚠️ Refuse rather than stamp `anon`. Both flushes -- this file's and the service worker's -- skip an
+  // event whose owner is not the account signing in, and the carve-out that forgives pre-v2 records only
+  // covers an ABSENT owner, not a wrong one. So an `anon` row is queued, invisible, and flushed by nobody,
+  // forever: reading that looks saved and never is. Dropping it is strictly better than storing a lie.
+  // Reintroduce by removing this guard and reading a chapter before the identity is restored.
+  if (!getCurrentUser()) return;
   const d = await db();
   // Stamped with the owner because the flush authenticates as whoever is signed in AT THAT MOMENT, which is
   // not necessarily who read the pages. On a shared device, A's queued chapters would otherwise be filed

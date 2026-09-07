@@ -18,7 +18,15 @@
 //       fell back to a hard navigation, which hit (a), and the tab ended up showing the raw payload as text
 //       -- i.e. tapping a DOWNLOADED chapter with no network did not open the reader.
 //   Every v8 SHELL entry is keyed wrongly, so this bump is load-bearing rather than cosmetic.
-const VERSION = 'v9';
+// v10: a cold boot with no network could not open anything, because SHELL is only ever written by a HARD
+//   navigation and every route to the reader inside the app is a <Link>. So `/reader/` was in the cache only
+//   if someone happened to reload while in it, and `/` held whichever route was hard-loaded last -- a push
+//   notification makes that `/series/` -- which would then be served as the document for a reader URL and
+//   hydrate the wrong route entirely. The offline surface is precached at install instead of hoped for, and
+//   the navigate key is normalised to a trailing slash: the export is written with `trailingSlash: true`, so
+//   `/downloads` -> `/downloads/` is a redirect the SERVER performs, and offline there is no server to do it.
+//   Every v9 SHELL entry is keyed without the slash, so this bump is load-bearing too.
+const VERSION = 'v10';
 const SHELL = `yomi-shell-${VERSION}`;
 const STATIC = `yomi-static-${VERSION}`;
 const IMG = `yomi-img-${VERSION}`;
@@ -30,7 +38,34 @@ const IMG_MAX = 1000;
 // origin-wide, so left alone it eventually takes the downloaded offline chapters with it.
 const API_MAX = 300;
 
-self.addEventListener('install', () => self.skipWaiting());
+/**
+ * The three documents an offline launch needs, plus their RSC payloads, fetched while the network is still
+ * there. All six are static files in the export.
+ *
+ * ⚠️ `skipWaiting()` is called unconditionally and NOT awaited on the precache. A precache is an
+ * optimisation; letting a single failed request block activation would leave the old worker in place and
+ * make the app worse than having no precache at all.
+ */
+const OFFLINE_DOCS = ['/', '/downloads/', '/reader/'];
+const OFFLINE_PAYLOADS = ['/index.txt', '/downloads/index.txt', '/reader/index.txt'];
+
+self.addEventListener('install', (e) => {
+  self.skipWaiting();
+  e.waitUntil(
+    (async () => {
+      try {
+        const shell = await caches.open(SHELL);
+        await Promise.all(OFFLINE_DOCS.map(async (u) => {
+          try { const r = await fetch(u, { cache: 'reload' }); if (r.ok) await shell.put(u, r); } catch (_) {}
+        }));
+        const stat = await caches.open(STATIC);
+        await Promise.all(OFFLINE_PAYLOADS.map(async (u) => {
+          try { const r = await fetch(u, { cache: 'reload' }); if (r.ok) await stat.put(u, r); } catch (_) {}
+        }));
+      } catch (_) { /* best effort, always */ }
+    })(),
+  );
+});
 
 /**
  * Empty every cache that can hold one account's answers.
@@ -176,7 +211,10 @@ self.addEventListener('fetch', (e) => {
         // chapter and grow without limit -- in a static export the document for a route does not depend on
         // its query string. And not always '/', which is what this did: one entry, overwritten by every
         // navigation, so offline it answered every route with whichever page happened to be loaded last.
-        const key = new URL(req.url).pathname;
+        // Normalised to a trailing slash so it matches what `install` precached and what the export emits.
+        // Without this, `/downloads` and `/downloads/` are two entries and the offline one is the miss.
+        const p0 = new URL(req.url).pathname;
+        const key = p0.endsWith('/') ? p0 : `${p0}/`;
         try {
           const res = await fetch(req);
           if (res.ok) {
