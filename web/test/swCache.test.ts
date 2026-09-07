@@ -113,3 +113,82 @@ test('source browsing is still never cached', async () => {
   const apiCache = [...store.keys()].find((k) => k.startsWith('yomi-api-'));
   assert.ok(!apiCache || store.get(apiCache)!.size === 0, 'per-account source answers must not be stored');
 });
+
+// ---- what v9 and v10 exist for: offline navigation ----------------------------------------------------
+//
+// Neither of the two rules below had a test, which is how they came to be the subject of a bug report three
+// releases after they shipped. They are the difference between a downloaded chapter opening on a plane and
+// the tab showing Next's raw payload as text.
+
+/** Drive the fetch handler as a document navigation rather than a subresource. */
+async function doNavigate(handlers: Record<string, Function>, url: string) {
+  let responded: Promise<any> | undefined;
+  await handlers.fetch({
+    request: { method: 'GET', url, mode: 'navigate' },
+    respondWith: (p: any) => { responded = p; },
+  });
+  return responded ? await responded : undefined;
+}
+
+test('a navigation is cached per ROUTE, not under one shared key', async () => {
+  const { handlers, store } = loadSw();
+  await doNavigate(handlers, 'https://yomi.test/library/');
+  await doNavigate(handlers, 'https://yomi.test/downloads/');
+
+  const shell = [...store.keys()].find((k) => k.startsWith('yomi-shell-'))!;
+  const keys = [...store.get(shell)!.keys()];
+  // Reintroduce by keying every navigation as '/': offline, any route is answered with whichever document
+  // was loaded last, which is what shipped before v9.
+  assert.ok(keys.includes('/library/'), 'the library document was not cached under its own path');
+  assert.ok(keys.includes('/downloads/'), 'the downloads document was not cached under its own path');
+});
+
+test('the query string does not multiply cache entries for one route', async () => {
+  const { handlers, store } = loadSw();
+  // Every chapter is a different `?book=`, and in a static export they all resolve to ONE document.
+  // Reintroduce by keying on the full URL and this cache grows by one identical copy per chapter opened.
+  for (const id of ['b1', 'b2', 'b3']) await doNavigate(handlers, `https://yomi.test/reader/?book=${id}`);
+  const shell = [...store.keys()].find((k) => k.startsWith('yomi-shell-'))!;
+  const readerKeys = [...store.get(shell)!.keys()].filter((k) => String(k).startsWith('/reader'));
+  assert.deepEqual(readerKeys, ['/reader/'], 'the reader document should be stored exactly once');
+});
+
+test('a route is answered from cache when the network is gone', async () => {
+  const { handlers, store, ctx } = loadSw();
+  await doNavigate(handlers, 'https://yomi.test/downloads/');
+  ctx.fetch = async () => { throw new TypeError('Failed to fetch'); }; // airplane mode
+
+  const res = await doNavigate(handlers, 'https://yomi.test/downloads/');
+  assert.ok(res && res.status !== 0, 'the downloads document must survive the network going away');
+  const shell = [...store.keys()].find((k) => k.startsWith('yomi-shell-'))!;
+  assert.ok([...store.get(shell)!.keys()].includes('/downloads/'));
+});
+
+test('Next’s per-route payload is cached, keyed by path and not by its query', async () => {
+  const { handlers, store } = loadSw();
+  // Without a rule for this the client router's fetch went to the network, died offline, and Next fell back
+  // to a hard navigation -- which is how a tab ended up showing `1:{"...` as plain text.
+  // Reintroduce by deleting the `.txt` branch from sw.js.
+  await doFetch(handlers, 'https://yomi.test/reader/index.txt?book=b1&_rsc=abc');
+  await doFetch(handlers, 'https://yomi.test/reader/index.txt?book=b2&_rsc=def');
+  const stat = [...store.keys()].find((k) => k.startsWith('yomi-static-'))!;
+  const txt = [...store.get(stat)!.keys()].filter((k) => String(k).includes('.txt'));
+  assert.deepEqual(txt, ['/reader/index.txt'], 'the payload should be one entry per route, query stripped');
+});
+
+test('install precaches the surface a cold offline launch needs', async () => {
+  const { handlers, store } = loadSw();
+  assert.ok(handlers.install, 'the SW must handle install');
+  const waits: Promise<any>[] = [];
+  await handlers.install({ waitUntil: (p: any) => waits.push(p) });
+  await Promise.all(waits);
+
+  const shell = [...store.keys()].find((k) => k.startsWith('yomi-shell-'))!;
+  const keys = [...store.get(shell)!.keys()].map(String);
+  // ⚠️ SHELL is only ever written by a HARD navigation, and every route to the reader inside the app is a
+  // <Link>. Without this precache, `/reader/` is in the cache only if someone happened to reload while in
+  // it. Reintroduce by dropping the precache and a cold boot on a plane depends on luck.
+  for (const p of ['/', '/downloads/', '/reader/']) {
+    assert.ok(keys.includes(p), `${p} was not precached at install`);
+  }
+});

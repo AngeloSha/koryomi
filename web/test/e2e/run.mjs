@@ -337,9 +337,7 @@ try {
   // navigation, and the tab showed the raw payload as text. Reintroduce by deleting the `.txt` branch from
   // sw.js and this goes back to that.
   //
-  // ⚠️ A COLD BOOT offline is still not covered and is not expected to pass: reloading the URL from scratch
-  // needs the session re-established, which needs the network. Navigating INSIDE the running app is the
-  // case that works, and it is the one that matters.
+  // A COLD BOOT offline is covered separately, in the block below this one.
   if (seriesHref) {
     console.log('\n  offline reading, whole network cut');
     await page.goto(`${BASE}/downloads`, { waitUntil: 'networkidle2', timeout: 60000 });
@@ -378,6 +376,87 @@ try {
         await page.setOfflineMode(false);
         networkCut = false;
       }
+    }
+  }
+
+  // ------------------------------------------------------- a COLD BOOT with no network: the plane case
+  //
+  // Not "the app is open and the train enters a tunnel" (that is the block above) but "the app was closed,
+  // the phone is in airplane mode, and you tap the icon". Everything here is a full `page.goto`, which is
+  // what launching an installed PWA actually does.
+  //
+  // This used to be documented as impossible, and it was: `refreshSession` collapsed a 401 and a dead
+  // network into the same `false`, so the app could not tell "signed out" from "on a plane"; and the user
+  // id lived only in memory, so even past the sign-in screen every IndexedDB key would have been `anon:` and
+  // missed.
+  //
+  // Reintroduce by removing BOTH identity restores -- the module-load seed in lib/api.ts AND the
+  // `setCurrentUser(saved.id)` calls in lib/auth.tsx. ⚠️ They are redundant, so either ALONE still passes
+  // here; that was measured, not assumed. With both gone this block fails on "the offline downloads screen
+  // listed no chapters", which is the assertion that separates "the sign-in screen is gone" from "the app
+  // actually found your downloads".
+  //
+  // The other two ways to break the feature are pinned in web/test/offlineIdentity.test.ts, which is cheaper
+  // than a browser run: collapsing `rejected` and `unreachable` back into one value in refreshSession, and
+  // moving the `anon` branch in AppShell.tsx back below the reader hatch.
+  //
+  // ⚠️ THESE ASSERTIONS GO VACUOUS EASILY, and one of them already did once. A blank page satisfies "no
+  // password field", and the sign-in screen satisfies "an <img> decoded" -- its own logo. So each check
+  // asserts in BOTH directions: something that only exists when it worked (a downloaded page decoded from a
+  // blob: URL, a reader link in the list) AND the absence of the failure (input[type=password]).
+  if (seriesHref) {
+    console.log('\n  cold boot, no network');
+    await page.setOfflineMode(true);
+    networkCut = true;
+    try {
+      // 1. Launch the way the installed app does: the manifest's start_url.
+      await page.goto(`${BASE}/`, { waitUntil: 'domcontentloaded', timeout: 60000 });
+      await sleep(6000);
+      const home = await page.evaluate(() => ({
+        signedOut: !!document.querySelector('input[type=password]'),
+        path: location.pathname,
+        readerLinks: document.querySelectorAll('a[href*="/reader"]').length,
+      }));
+      await shot('26-coldboot-downloads');
+      if (home.signedOut) bad('a cold boot with no network showed the sign-in page');
+      else if (!/\/downloads/.test(home.path)) bad(`a cold boot with no network landed on ${home.path}, not the downloads`);
+      // The one that catches "past the login screen but the identity was never restored": the screen
+      // renders, and lists nothing, because every offline key missed.
+      else if (!home.readerLinks) bad('the offline downloads screen listed no chapters — the identity was not restored');
+      else ok(`a cold boot with no network opens the downloads (${home.readerLinks} chapter(s) listed)`);
+
+      // 2. Cold boot straight into the reader, which is what a shared link or a resumed tab does.
+      const href = await page.evaluate(() =>
+        (document.querySelector('a[href*="/reader"]') || {}).getAttribute?.('href') || null);
+      if (href) {
+        await page.goto(`${BASE}${href.replace(/^\//, '/')}`, { waitUntil: 'domcontentloaded', timeout: 60000 });
+        await sleep(9000);
+        await revealChrome();
+        await shot('27-coldboot-reader');
+        const seen = await page.evaluate(() => ({
+          signedOut: !!document.querySelector('input[type=password]'),
+          raw: (document.body.innerText || '').startsWith('1:'),
+          path: location.pathname,
+          blobs: [...document.querySelectorAll('img')].filter((i) => i.src.startsWith('blob:') && i.naturalWidth > 0).length,
+        }));
+        if (seen.raw) bad('a cold boot into the reader showed Next\'s raw RSC payload as text');
+        else if (seen.signedOut) bad('a cold boot into the reader with no network showed the sign-in page');
+        else if (!/\/reader/.test(seen.path)) bad(`a cold boot into the reader landed on ${seen.path}`);
+        else if (!seen.blobs) bad('the cold-booted reader opened but decoded no downloaded page');
+        else ok(`a cold boot into the reader decodes ${seen.blobs} downloaded page(s)`);
+      }
+
+      // 3. Reconnecting revalidates: the offline chrome goes away without a reload.
+      await page.setOfflineMode(false);
+      networkCut = false;
+      await page.evaluate(() => window.dispatchEvent(new Event('online')));
+      await sleep(5000);
+      const back = await page.evaluate(() => document.body.innerText.includes('Offline —'));
+      if (back) bad('the offline banner was still showing after the network came back');
+      else ok('reconnecting clears the offline state');
+    } finally {
+      await page.setOfflineMode(false);
+      networkCut = false;
     }
   }
 
@@ -793,6 +872,38 @@ try {
   if (!mf) bad('no <link rel=manifest> — the app is not installable');
   else if (mf.status !== 200) bad(`manifest returned ${mf.status}`);
   else ok(`manifest ok (${mf.body.name || mf.body.short_name})`);
+
+  // ------------------------------------------------------- signing out ends the offline grace
+  //
+  // ⚠️ LAST ON PURPOSE. It destroys the session every block above depends on, so it cannot move earlier.
+  //
+  // This is the multi-user safety property, and the one a later refactor is most likely to break, because
+  // nothing about it is visible while the network is up: the device keeps a record of who was last signed
+  // in so it can address their downloads offline, and if signing out fails to drop that record, the next
+  // person to pick up the tablet inherits it -- and with it, the key to somebody else's library.
+  //
+  // Reintroduce by removing `clearOfflineIdentity()` from `clearLocalSession` in lib/auth.tsx.
+  console.log('\n  signing out ends the offline grace');
+  await page.evaluate(() => fetch('/auth/logout', { method: 'POST', credentials: 'include' }).catch(() => {}));
+  await sleep(1500);
+  await page.setOfflineMode(true);
+  networkCut = true;
+  try {
+    await page.goto(`${BASE}/`, { waitUntil: 'domcontentloaded', timeout: 60000 });
+    await sleep(6000);
+    const after = await page.evaluate(() => ({
+      signedOut: !!document.querySelector('input[type=password]'),
+      readerLinks: document.querySelectorAll('a[href*="/reader"]').length,
+    }));
+    await shot('28-signed-out-offline');
+    // Both directions: the sign-in screen is PRESENT, and no downloads are reachable behind it.
+    if (!after.signedOut) bad('after signing out, an offline launch did not ask for a password');
+    else if (after.readerLinks) bad(`after signing out, an offline launch still listed ${after.readerLinks} downloaded chapter(s)`);
+    else ok('after signing out, an offline launch asks to sign in and lists nothing');
+  } finally {
+    await page.setOfflineMode(false);
+    networkCut = false;
+  }
 } finally {
   await browser.close();
 }

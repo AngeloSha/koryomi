@@ -124,10 +124,16 @@ test('the Umbrel package is the one under review: proxy block, PUID, digest pin,
   assert.ok(f && /@sha256:[0-9a-f]{64}$/.test(f.image), 'the solver sidecar is not pinned by digest');
 });
 
-test('the README tells Unraid and Umbrel users where their manifest is', () => {
+test('an Unraid or Umbrel user can still get from the README to their manifest', () => {
+  // The property is that the path exists, not that it is one hop. The per-platform install moved out of the
+  // README in v0.24.0 -- it was longer on its own than five comparable projects' entire READMEs -- so this
+  // follows it, and additionally pins the link that makes it reachable. Reintroduce by dropping either the
+  // README's pointer to the install guide or one of the manifest links inside it: a NAS user lands on a
+  // quick start that assumes Docker Compose and never learns their platform has a one-click template.
   const r = read('README.md');
-  // Written after the rebase onto stage 4, alongside the CasaOS line. Reintroduce by dropping either link.
-  assert.match(r, /deploy\/unraid\/uchiyomi\.xml/, 'README does not point Unraid users at the template');
-  assert.match(r, /deploy\/umbrel\/uchiyomi/, 'README does not point Umbrel users at the manifest');
+  assert.match(r, /docs\/INSTALL\.md/, 'the README no longer points anywhere for platform installs');
+  const i = read('docs/INSTALL.md');
+  assert.match(i, /deploy\/unraid\/uchiyomi\.xml/, 'the install guide does not point Unraid users at the template');
+  assert.match(i, /deploy\/umbrel\/uchiyomi/, 'the install guide does not point Umbrel users at the manifest');
   assert.ok(existsSync(join(REPO, 'deploy/casaos/docker-compose.yml')), 'the CasaOS manifest moved');
 });

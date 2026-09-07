@@ -36,10 +36,17 @@ globalThis.fetch = (async () => {
 let queueProgress: typeof import('../lib/downloads').queueProgress;
 let flushOutbox: typeof import('../lib/downloads').flushOutbox;
 let openDB: typeof import('idb').openDB;
+let setCurrentUser: typeof import('../lib/api').setCurrentUser;
 
 before(async () => {
   ({ queueProgress, flushOutbox } = await import('../lib/downloads'));
   ({ openDB } = await import('idb'));
+  // The outbox stamps every event with the signed-in account, and `queueProgress` now REFUSES to write
+  // without one -- an owner-less event is skipped by both flushes forever, so storing it would be silent
+  // data loss dressed up as a successful queue. These tests always meant "a signed-in user reads a page";
+  // that was previously implicit, riding on the 'anon' fallback matching itself. Now it is stated.
+  ({ setCurrentUser } = await import('../lib/api'));
+  setCurrentUser('u1');
   // Let the app create its own schema first. Opening 'yomi-offline' here without an upgrade callback would
   // otherwise create an empty v1 database, and the real one would then never get its object stores.
   await flushOutbox();
