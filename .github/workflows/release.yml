@@ -154,8 +154,16 @@ jobs:
 
   # Only once EVERY image exists at this version does `latest` move. Re-tagging a manifest copies no layers,
   # so this is a few seconds and cannot itself half-apply in a way that matters.
+  #
+  # ⚠️ AND ONLY FOR A REAL RELEASE. The trigger is `tags: ['v*']`, which matches v0.21.0-rc1 just as happily
+  # as v0.21.0 -- so without this guard the first release candidate ever tagged would retag `:latest` onto
+  # itself and hand a prerelease to every self-hoster who pulls `latest`, silently and immediately. A
+  # prerelease is exactly a tag with a hyphen after the version (semver's build/prerelease separator), so
+  # that is the test. The version tag itself is still published for an rc, which is the whole point of
+  # cutting one: you can pull ghcr.io/…:v0.21.0-rc1 by name and nobody else is affected.
   latest:
     needs: merge
+    if: ${{ !contains(github.ref_name, '-') }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:

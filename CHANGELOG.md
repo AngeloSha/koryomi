@@ -1,5 +1,51 @@
 # Changelog
 
+## v0.21.0 — 2026-09-07
+
+### The cover proxy stops fetching whatever it is told to
+
+`/img/sources/cover` took a URL and fetched it. It checked the scheme and nothing else, and any signed-in
+account — or anything holding an OPDS token — could point it at the server's own network: the database, the
+extension engine, the solver, the LAN, a cloud metadata endpoint. It was not even blind about it, because a
+failure handed back the upstream status code, which turns the route into a working port scanner, and
+anything the image pipeline could decode came back as a picture.
+
+It now refuses anything that is not a public address, resolves the hostname before trusting it, re-checks
+every redirect hop rather than letting one bounce it somewhere private, and answers a flat 502 instead of
+reporting what it found. A blocked URL is served the same placeholder as any other unusable cover, so there
+is no difference to measure.
+
+Two-factor recovery codes were 40 bits, stored unsalted; each one bypasses 2FA on its own. They are 80 bits
+now. Image authorisation moved to cover the whole `/img/` prefix, because it lived inside one plugin and any
+future plugin serving image bytes would silently have had none. And the HTML stripping that cleans scraped
+titles now runs to a fixed point, so a tag cannot survive by being split in half.
+
+### Titles that are not in English can be added again
+
+MangaDex asked only for English chapters, so a series scanlated solely into Spanish or Portuguese reported
+zero chapters and could not be added at all — indistinguishable from a dead series. English is still
+preferred; when there is none, it now falls back through a fixed language order, one language at a time, so
+the chapter list stays coherent rather than mixing languages arbitrarily.
+
+### Node 24, and a dependency sweep
+
+The runtime moves to Node 24 LTS across all three images, CI, and both workspaces at once. Node 26 was
+offered but does not become LTS until late October, and shipping a self-hosted product on a Current release
+is the wrong trade. zod 4, framer-motion 13, sharp 0.35.4, nginx 1.31 and five GitHub Actions majors all
+landed with them.
+
+### Unraid instructions that work
+
+Adding a template repository URL has not worked since Unraid 6.10 removed the field, and the file behind it
+has not been read at all since 7.3 — so the documented steps sent people to a box that no longer exists.
+The template file now gets copied onto the server instead, which is what Unraid actually reads. Found by
+[@hawwwwwk](https://github.com/hawwwwwk).
+
+### Also
+
+`:latest` is now gated on the tag not being a prerelease. It was gated on every image publishing
+successfully, but nothing stopped a release candidate from claiming it.
+
 ## v0.20.0 — 2026-09-06
 
 ### Moments: the pages you saved, as the pages you saved
