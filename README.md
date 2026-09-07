@@ -484,6 +484,14 @@ Thanks to everyone who has helped build Uchiyomi:
 
 [![Uchiyomi contributors](https://contrib.rocks/image?repo=AngeloSha/uchiyomi)](https://github.com/AngeloSha/uchiyomi/graphs/contributors)
 
+That image is drawn from GitHub's contributors graph, which only counts the author of a commit. Some help
+arrives as a report or a diagnosis that lands as someone else's commit, and is invisible there — so it is
+named here instead:
+
+- **Unraid install instructions** — [@hawwwwwk](https://github.com/hawwwwwk), who spotted that Unraid had
+  removed the *Template repositories* field the docs told people to use, and opened pull requests against
+  both this repo and [`unraid-templates`](https://github.com/AngeloSha/unraid-templates).
+
 ## License
 
 [MPL-2.0](LICENSE). Source plugins are **not** part of this repository; they fetch from third-party sites and
