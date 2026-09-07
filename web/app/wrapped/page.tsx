@@ -128,6 +128,20 @@ function Wrapped() {
         </div>
       </div>
 
+      {/* `byDow` was computed by /api/wrapped, asserted four times in wrappedYear.int.test.ts, typed on the
+          interface above -- and rendered by nothing. The page showed only `busiestDow` ("your power day
+          was Tuesday"), which is the argmax of this array: the headline without the distribution behind
+          it, so a week that was almost flat and a week that was all one day read identically.
+          The profile's Reading Studio draws a weekday chart too, but it buckets /api/stats on the client
+          over a rolling window; this is the whole year, from the server, and they are different numbers on
+          purpose. */}
+      {!!data?.byDow?.some((v) => v > 0) && (
+        <div className="px-5 pt-6 lg:mx-auto lg:max-w-2xl lg:px-0">
+          <p className="mb-2 text-xs font-medium text-fog-400">{tr('By weekday')}</p>
+          <Bars items={data!.byDow!.map((v, i) => ({ label: tr(DOW[i]), value: v, hint: `${v}` }))} />
+        </div>
+      )}
+
       {(data?.topSeries?.length ?? 0) > 0 && (
         <div className="px-5 pt-6 lg:mx-auto lg:max-w-2xl lg:px-0">
           <p className="mb-2 text-xs font-medium text-fog-400">{tr('Top series')}</p>
