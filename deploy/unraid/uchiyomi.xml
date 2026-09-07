@@ -1,8 +1,14 @@
 <?xml version="1.0"?>
 <!--
   Unraid Community Applications template. One container: the database runs inside it (DATABASE_URL unset),
-  in the Data path below. Submit to a CA template repository, or add this file's raw URL under
-  Docker -> Add Container -> Template repositories.
+  in the Data path below. Submit to a CA template repository, or install it by hand: copy this file to
+  /boot/config/plugins/dockerMan/templates-user/ on the server, then Docker -> Add Container and pick
+  uchiyomi under "User templates".
+
+  NOT by adding a template repository URL. Unraid deleted that field in 6.10, and since 7.3 the file it
+  wrote (/boot/config/plugins/dockerMan/template-repos) is never read -- downloadTemplates() returns
+  before it gets there -- so appending to it is a no-op. getTemplates() scans templates-user, which is
+  why dropping the file there is what works.
 -->
 <Container version="2">
   <Name>uchiyomi</Name>
