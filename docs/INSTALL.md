@@ -71,7 +71,6 @@ What you end up running:
 | Container | Role |
 |---|---|
 | `uchiyomi` | the app: the API and the PWA it serves |
-| `uchiyomi-db` | private Postgres (no published port — unreachable from outside the stack) |
 | `uchiyomi-flaresolverr` | Cloudflare solver — **started automatically**; sources that need it use it with no config |
 | `uchiyomi-suwayomi` | the extension engine, so Mihon / Tachiyomi extensions work ([docs](extensions.md)) |
 
