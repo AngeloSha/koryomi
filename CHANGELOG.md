@@ -1,5 +1,48 @@
 # Changelog
 
+## v0.24.0 — 2026-09-07
+
+### The app opens on a plane
+
+Launching the installed app in airplane mode showed the sign-in screen, with the chapters you had downloaded
+for exactly this sitting on the device, unreachable. Tapping a chapter *inside* an already-running app has
+worked since v0.20.0; a cold start never has, and the code said so — the browser tests carried a note calling
+it out of scope, and v0.20.0's own changelog admitted it.
+
+Two things were being thrown away. The session check could not tell "the server rejected you" from "there is
+no server to ask": both came back as a plain no, and a plain no means sign in. And the signed-in account was
+remembered only in memory, while every downloaded chapter is filed under whose it is — so even past the
+sign-in screen the reader would have found nothing, which is a worse failure, because it reads as though the
+downloads are gone.
+
+Now a device that had a session keeps it when the server is simply unreachable, and opens on your Downloads
+with a banner naming the account. The reader works exactly as it does in a tunnel today. Everything needing
+the server is dimmed rather than hidden, because there is nothing behind it until you reconnect — and the
+moment you do, it checks in, clears the banner and sends up whatever you read.
+
+The part that took the most care is the part nobody sees. This is a multi-user app and household devices get
+shared, so: signing out ends it immediately — the next offline launch asks for a password and lists nothing,
+though the files stay on disk and become readable again when that account signs back in. If the server ever
+answers that the session is gone, the device signs itself out. The grace expires exactly when the login
+itself would have, which the server now tells the app rather than the app assuming. And nothing new is
+stored that could serve as a credential: the record says who you were, not how to prove it.
+
+Right-to-left manga also read its double-page spreads in the wrong order offline. The downloaded chapter had
+carried the reading direction all along; the reader threw it away and left a comment saying the information
+was not available, one field from where it was.
+
+### A README the size of its category
+
+504 lines and 4,797 words, against a median of 132 and 743 across Komga, Kavita, Mihon, Stump, Suwayomi and
+Audiobookshelf. The install section alone was longer than five of those six READMEs in their entirety, and
+44 lines of it warned about upgrade problems from v0.9.0 and earlier — fourteen releases ago, and already
+written down in this file.
+
+It is 141 lines now. Almost nothing was deleted: the platform-by-platform install moved to `docs/INSTALL.md`,
+the environment variables to `docs/CONFIGURATION.md`, and the comparison against other readers to
+`docs/COMPARISON.md`, where a table making dated claims about five moving projects is less likely to be the
+second thing a visitor reads.
+
 ## v0.23.0 — 2026-09-07
 
 ### Three gradients start rendering what they were written to render
