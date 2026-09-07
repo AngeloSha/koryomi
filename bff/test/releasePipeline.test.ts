@@ -40,6 +40,15 @@ test('arm64 is built on an arm64 runner, never emulated, and merged into one ind
   assert.match(y, /attest-build-provenance/, 'no provenance attestation');
   assert.equal(wf.permissions['id-token'], 'write', 'attestations need id-token: write');
   assert.equal(wf.permissions.attestations, 'write');
+  // The digest the merge job trusts is checked before it is written. `build-push-action` sets that output
+  // only `if (digest)`, so a build that produced no image metadata leaves it empty -- and an empty digest
+  // reaches `imagetools create` as a bare `image@`, which is how a tag ends up over one architecture or
+  // none. Reintroduce by dropping the `sha256:` case: the guard is the only thing between an empty output
+  // and a half-published tag, and `merge` runs `fail-fast: false`, so nothing else would stop it.
+  const record = wf.jobs.build.steps.find((st: any) => st.name === 'Record the digest');
+  assert.ok(record, 'no step records the per-arch digest');
+  assert.match(record.run, /sha256:\*\)/, 'the recorded digest is not validated before it is written');
+  assert.match(record.run, /exit 1/, 'a malformed digest does not fail the build');
   // Every image, both architectures.
   assert.deepEqual(wf.jobs.build.strategy.matrix.service, ['bff', 'web', 'aio']);
   assert.deepEqual(wf.jobs.build.strategy.matrix.arch, ['amd64', 'arm64']);
