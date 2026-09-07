@@ -71,8 +71,8 @@ export function HeroCarousel({ slides }: { slides: Series[] }) {
           {/* real art pulled from the internet (AniList) — sharp banner in the hero; genre-banner fallback.
               Scrims stay light so the actual art shows: clear top, legibility gradient only bottom-left. */}
           <Backdrop seriesId={cur.id} genres={cur.metadata?.genres} hero className="absolute inset-0" />
-          <div className="absolute inset-0 bg-gradient-to-t from-ink-950 via-ink-950/30 to-transparent" />
-          <div className="absolute inset-0 bg-gradient-to-r from-ink-950/65 via-ink-950/20 to-transparent" />
+          <div className="absolute inset-0 bg-linear-to-t from-ink-950 via-ink-950/30 to-transparent" />
+          <div className="absolute inset-0 bg-linear-to-r from-ink-950/65 via-ink-950/20 to-transparent" />
           <div className="absolute inset-0" style={{ background: 'radial-gradient(60% 70% at 22% 55%, rgb(var(--cover, 124 92 255) / 0.12), transparent 70%)' }} />
         </motion.div>
       </AnimatePresence>

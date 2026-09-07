@@ -87,7 +87,7 @@ export function Sheet({ title, onClose, children }: { title: string; onClose: ()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   return (
-    <div className="fixed inset-0 z-[60] flex items-end justify-center bg-black/70 backdrop-blur-sm"
+    <div className="fixed inset-0 z-[60] flex items-end justify-center bg-black/70 backdrop-blur-xs"
       role="dialog" aria-modal="true" aria-label={title} onClick={onClose}>
       <div
         ref={bodyRef}
@@ -204,7 +204,7 @@ export function Img({
           decoding="async"
           onLoad={() => setLoaded(true)}
           onError={setError}
-          className={`h-full w-full object-cover ${imgClassName} transition-all duration-700 ease-out ${loaded ? 'scale-100 opacity-100 blur-0' : 'scale-105 opacity-0 blur-md'}`}
+          className={`h-full w-full object-cover ${imgClassName} transition-all duration-700 ease-out ${loaded ? 'scale-100 opacity-100 blur-none' : 'scale-105 opacity-0 blur-md'}`}
         />
       )}
     </div>

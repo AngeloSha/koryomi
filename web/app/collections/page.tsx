@@ -85,12 +85,12 @@ export default function CollectionsPage() {
       )}
 
       {creating && (
-        <div className="fixed inset-0 z-50 grid place-items-center bg-ink-950/70 p-4 backdrop-blur-sm" onClick={() => setCreating(false)}>
+        <div className="fixed inset-0 z-50 grid place-items-center bg-ink-950/70 p-4 backdrop-blur-xs" onClick={() => setCreating(false)}>
           <div className="glass w-full max-w-sm rounded-2xl border border-ink-700 p-5" onClick={(e) => e.stopPropagation()}>
             <h3 className="mb-3 font-display text-lg font-semibold">{tr('New collection')}</h3>
             <input value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && create()}
               placeholder={tr('e.g. Plan to read')} autoFocus
-              className="w-full rounded-xl border border-ink-700 bg-ink-900 px-3 py-2.5 text-sm text-fog-50 outline-none focus:border-accent" />
+              className="w-full rounded-xl border border-ink-700 bg-ink-900 px-3 py-2.5 text-sm text-fog-50 outline-hidden focus:border-accent" />
             <div className="mt-3 flex items-center gap-2">
               {ACCENTS.map((a) => (
                 <button key={a} onClick={() => setAccent(a)} aria-label={`accent ${a}`}

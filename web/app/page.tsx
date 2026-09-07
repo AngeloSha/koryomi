@@ -123,7 +123,7 @@ export default function HomePage() {
         <div className="relative h-[58vh] min-h-[420px] overflow-hidden lg:-mx-6 lg:h-[70vh] lg:w-[calc(100%+3rem)]">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src={ART.hero} alt="" className="absolute inset-0 h-full w-full object-cover" />
-          <div className="absolute inset-0 bg-gradient-to-t from-ink-950 via-ink-950/55 to-ink-950/15" />
+          <div className="absolute inset-0 bg-linear-to-t from-ink-950 via-ink-950/55 to-ink-950/15" />
           <div className="absolute inset-x-0 bottom-0 px-5 pb-12 lg:px-14">
             <span className="mb-2 inline-flex items-center gap-1.5 rounded-full bg-black/45 px-3 py-1.5 text-xs font-medium text-accent backdrop-blur"><IcSparkle width={13} height={13} />{tr('Welcome')}</span>
             <h1 className="font-brand text-4xl font-bold leading-tight text-white drop-shadow lg:text-6xl">{tr('Welcome to Uchiyomi')}</h1>

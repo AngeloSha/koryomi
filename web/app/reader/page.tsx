@@ -768,7 +768,7 @@ function ReaderInner() {
         {chrome && (
           <>
             <motion.header initial={{ y: -64, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: -64, opacity: 0 }}
-              className="absolute inset-x-0 top-0 z-40 flex items-center gap-2 bg-gradient-to-b from-black/90 via-black/55 to-transparent px-3 pb-8 pt-[max(0.9rem,calc(env(safe-area-inset-top)+0.55rem))]">
+              className="absolute inset-x-0 top-0 z-40 flex items-center gap-2 bg-linear-to-b from-black/90 via-black/55 to-transparent px-3 pb-8 pt-[max(0.9rem,calc(env(safe-area-inset-top)+0.55rem))]">
               <button onClick={back} className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-black/45 text-white backdrop-blur">
                 <IcChevronLeft width={22} height={22} />
               </button>
@@ -807,7 +807,7 @@ function ReaderInner() {
             </motion.header>
 
             <motion.footer initial={{ y: 64, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: 64, opacity: 0 }}
-              className="absolute inset-x-0 bottom-0 z-40 bg-gradient-to-t from-black/90 via-black/55 to-transparent px-4 pt-10 pb-[max(0.9rem,calc(env(safe-area-inset-bottom)+0.4rem))]">
+              className="absolute inset-x-0 bottom-0 z-40 bg-linear-to-t from-black/90 via-black/55 to-transparent px-4 pt-10 pb-[max(0.9rem,calc(env(safe-area-inset-bottom)+0.4rem))]">
               <div className="relative mx-auto flex max-w-3xl items-center gap-2">
                 {/* scrubber preview: a small render of the target page while dragging */}
                 {scrubbing && flat[current] && (() => {

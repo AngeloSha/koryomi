@@ -1,6 +1,82 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+/* Tailwind v4 is CSS-first: there is no tailwind.config.ts any more, and everything that used to live in
+   `theme.extend` is the `@theme` block below. Reintroduce the v3 directives (`@tailwind base/components/
+   utilities`) and the build fails -- v4 has one `@import`.
+
+   ⚠️ `source(none)` plus explicit `@source` lines, rather than v4's automatic detection. Automatic
+   detection would scan everything under the project root that git does not ignore, which is WIDER than the
+   v3 `content` globs this replaces (`./app`, `./components`), and a migration should change what compiles
+   only where that is the point. The one deliberate widening is `lib`: it holds exactly one class,
+   `contents` on the language-remount wrapper in lib/I18nProvider.tsx, which v3 never scanned -- so that
+   wrapper has always been a stray `display:block` div around the whole app instead of the intended
+   `display:contents`. Scanning lib makes it do what it says. */
+@import "tailwindcss" source(none);
+@source "./";
+@source "../components/";
+@source "../lib/";
+
+@theme {
+  /* True-black OLED base with a cool, near-neutral surface ramp. */
+  --color-ink-950: #000000;
+  --color-ink-900: #060608;
+  --color-ink-850: #0b0b0f;
+  --color-ink-800: #111116;
+  --color-ink-700: #1a1a22;
+  --color-ink-600: #26262f;
+  --color-ink-500: #3a3a45;
+
+  /* 200 and 600 were used 65 times across the app and were never DEFINED, so every one of those elements
+     produced no rule at all and inherited fog-50 instead. Two thirds of the app's "secondary" text was
+     therefore rendering at the same near-white as its primary text, which is most of why flat surfaces read
+     as flat. web/test/tokens.test.ts fails if a shade is used and not defined here -- it now reads THIS
+     block, not the deleted config file. */
+  --color-fog-50: #f7f7fb;
+  --color-fog-100: #ececf2;
+  --color-fog-200: #d5d5df;
+  --color-fog-300: #b9b9c6;
+  --color-fog-400: #9292a3;
+  --color-fog-500: #6f6f81;
+  --color-fog-600: #53535f;
+
+  /* ⚠️ `rgb(var(--accent))`, NOT the bare `var(--accent)` triplet. v3 wrote `rgb(var(--accent) /
+     <alpha-value>)` and substituted the channel itself; v4 has no `<alpha-value>` and applies opacity
+     modifiers with color-mix(), which needs a real colour to mix. Store the triplet here instead and every
+     plain `text-accent` / `bg-accent` becomes an invalid declaration -- the accent disappears app-wide, with
+     no build error. `--accent` is set at :root below and rewritten at runtime by the Settings colour picker
+     (lib/auth.tsx), which keeps working: var() resolves before color-mix does. */
+  --color-accent: rgb(var(--accent));
+  --color-accent-soft: rgb(var(--accent) / 0.14);
+  --color-accent-glow: rgb(var(--tile, var(--accent)) / 0.45);
+
+  --font-display: var(--ff-display), system-ui, sans-serif;
+  --font-sans: var(--ff-sans), system-ui, sans-serif;
+  --font-brand: var(--ff-brand), var(--ff-display), system-ui, sans-serif;
+
+  --radius-4xl: 2rem;
+
+  /* Reads --tile when a card sets one, so a cover's own colour lifts off the page on hover, and falls back
+     to the accent everywhere else -- which is every surface that does not set it. */
+  --shadow-glow: 0 0 0 1px rgb(var(--tile, var(--accent)) / 0.4), 0 8px 40px -8px rgb(var(--tile, var(--accent)) / 0.5);
+  --shadow-lift: 0 24px 60px -20px rgba(0, 0, 0, 0.85);
+
+  /* In v3 these were `keyframes` + `animation` theme keys. In v4 the animation is a token and the keyframes
+     are real at-rules; inside @theme they are emitted only if the animation is used. */
+  --animate-fade-up: fade-up 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+  --animate-shimmer: shimmer 1.6s infinite;
+  --animate-pulse-soft: pulse-soft 1.4s ease-in-out infinite;
+
+  @keyframes fade-up {
+    0% { opacity: 0; transform: translateY(12px); }
+    100% { opacity: 1; transform: translateY(0); }
+  }
+  /* Only a to-state on purpose: .skeleton::after sets translateX(-100%) as its start. */
+  @keyframes shimmer {
+    100% { transform: translateX(100%); }
+  }
+  @keyframes pulse-soft {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.55; }
+  }
+}
 
 :root {
   --accent: 124 92 255; /* electric violet #7c5cff — themeable from Settings */
@@ -71,8 +147,14 @@
      drifted. max-w-md never binds inside a card and binds hard in a full-width one, which is what keeps a
      text input from stretching to two thousand pixels on a wide display. */
   .field {
+    /* ⚠️ `placeholder:text-fog-500` is not decoration -- it replaces a default v4 removed. Tailwind v3's
+       preflight shipped `::placeholder { color: #9ca3af }`; v4 drops that and lets the placeholder inherit
+       currentColor at 50% opacity. currentColor here is `text-fog-100` (#ececf2), so on this app's true-black
+       surface every one of the 27 .field inputs would render its placeholder at ~50% near-white -- bright
+       enough to read as a filled-in value rather than a prompt. Reintroduce by deleting the placeholder
+       utility: nothing fails, the empty fields just look full. */
     @apply w-full max-w-md rounded-xl border border-ink-700 bg-ink-850 px-3 py-2.5
-           text-sm text-fog-100 outline-none focus:border-accent;
+           text-sm text-fog-100 placeholder:text-fog-500 outline-hidden focus:border-accent;
   }
 
   /* A horizontal scrim running from the START edge, for text laid over art.

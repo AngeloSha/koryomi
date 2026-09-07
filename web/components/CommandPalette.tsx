@@ -101,7 +101,7 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
     <AnimatePresence>
       {open && (
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }}
-          className="fixed inset-0 z-[70] bg-ink-950/70 p-4 pt-[12vh] backdrop-blur-sm" onClick={onClose}>
+          className="fixed inset-0 z-[70] bg-ink-950/70 p-4 pt-[12vh] backdrop-blur-xs" onClick={onClose}>
           <motion.div initial={{ opacity: 0, y: -10, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: -8, scale: 0.98 }}
             transition={{ duration: 0.18, ease: [0.22, 0.61, 0.36, 1] }}
             className="glass-strong grad-border mx-auto w-full max-w-xl overflow-hidden rounded-2xl border border-ink-700 shadow-lift"
@@ -115,7 +115,7 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
                 onKeyDown={onKey}
                 placeholder={tr('Search series or type a command…')}
                 autoCapitalize="none" autoCorrect="off" spellCheck={false}
-                className="w-full bg-transparent py-3.5 text-sm text-fog-50 outline-none placeholder:text-fog-500"
+                className="w-full bg-transparent py-3.5 text-sm text-fog-50 outline-hidden placeholder:text-fog-500"
               />
               <kbd className="hidden shrink-0 rounded-md border border-ink-700 px-1.5 py-0.5 text-[10px] text-fog-500 lg:block">esc</kbd>
             </div>

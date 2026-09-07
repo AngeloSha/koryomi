@@ -98,7 +98,7 @@ export function SeriesCard({ series, w = 'w-32', eager = false }: { series: Seri
         {(series.yomi?.newCount ?? 0) > 0 && (
           <span className="absolute bottom-2 left-2 z-10 rounded-full bg-accent px-2 py-0.5 text-[10px] font-bold tracking-wide text-black shadow-glow">NEW</span>
         )}
-        <div className="pointer-events-none absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-black/85 to-transparent" />
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 h-16 bg-linear-to-t from-black/85 to-transparent" />
       </div>
       <p className="mt-2 line-clamp-2 px-0.5 text-[13px] font-medium leading-tight text-fog-200 transition group-hover:text-fog-50">
         {series.metadata?.title || series.name}
@@ -119,7 +119,7 @@ export function ContinueCard({ book, eager = false }: { book: Book; eager?: bool
       className="group relative h-44 w-72 shrink-0 overflow-hidden rounded-3xl border border-ink-700/60 shadow-lift transition-all duration-300 hover:-translate-y-1 hover:shadow-glow [scroll-snap-align:start]"
     >
       <Img src={img.bookThumb(book.id)} alt={book.seriesTitle} eager={eager} className="absolute inset-0 h-full w-full transition-transform duration-500 group-hover:scale-105" />
-      <div className="absolute inset-0 bg-gradient-to-t from-black via-black/45 to-black/10" />
+      <div className="absolute inset-0 bg-linear-to-t from-black via-black/45 to-black/10" />
       <div className="absolute inset-x-0 bottom-0 p-4">
         <p className="line-clamp-1 font-display text-base font-semibold text-white">{book.seriesTitle}</p>
         <p className="mb-2 text-xs text-fog-300">

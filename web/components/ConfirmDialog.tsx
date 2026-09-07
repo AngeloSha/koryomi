@@ -45,7 +45,7 @@ export function Modal({
   }, []);
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-ink-950/70 p-4 backdrop-blur-sm" onClick={onClose}>
+    <div className="fixed inset-0 z-50 grid place-items-center bg-ink-950/70 p-4 backdrop-blur-xs" onClick={onClose}>
       <div
         ref={ref}
         role="dialog"
@@ -97,7 +97,7 @@ export function ConfirmDialog({
           <input
             value={typed}
             onChange={(e) => setTyped(e.target.value)}
-            className="w-full rounded-lg border border-ink-700 bg-ink-900/60 px-3 py-2 text-sm text-fog-50 outline-none focus:border-accent"
+            className="w-full rounded-lg border border-ink-700 bg-ink-900/60 px-3 py-2 text-sm text-fog-50 outline-hidden focus:border-accent"
             autoComplete="off"
           />
         </>

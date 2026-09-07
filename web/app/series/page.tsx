@@ -21,7 +21,7 @@ import { FindMissingDialog } from '@/components/FindMissingDialog';
 // The four the scanner itself writes from ComicInfo's PublishingStatus. Kept as a suggestion list rather
 // than a hard enum, because a file can carry anything and rejecting it would reject Uchiyomi's own data.
 const STATUSES = ['ONGOING', 'COMPLETED', 'HIATUS', 'CANCELLED'];
-const fld = 'w-full rounded-lg border border-ink-700 bg-ink-900/60 px-3 py-2 text-sm text-fog-100 outline-none transition focus:border-accent/60';
+const fld = 'w-full rounded-lg border border-ink-700 bg-ink-900/60 px-3 py-2 text-sm text-fog-100 outline-hidden transition focus:border-accent/60';
 
 function ArtEditor({ label, kind, busy, onUpload, onSetUrl, onReset }: { label: string; kind: 'cover' | 'banner'; busy: boolean; onUpload: (k: 'cover' | 'banner', f: File) => void; onSetUrl: (k: 'cover' | 'banner', url: string) => void; onReset: (k: 'cover' | 'banner') => void }) {
   const fileRef = useRef<HTMLInputElement>(null);
@@ -136,7 +136,7 @@ function SeriesEditModal({ id, series, onClose, onSaved }: { id: string; series:
     } catch (e) { setChecking(false); toast(msgOf(e, 'Could not start a check'), 'error'); }
   };
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-ink-950/70 p-4 backdrop-blur-sm" onClick={onClose}>
+    <div className="fixed inset-0 z-50 grid place-items-center bg-ink-950/70 p-4 backdrop-blur-xs" onClick={onClose}>
       <div className="glass max-h-[88vh] w-full max-w-md overflow-y-auto rounded-2xl border border-ink-700 p-5" onClick={(e) => e.stopPropagation()}>
         <div className="mb-3 flex items-start justify-between gap-3">
           <h3 className="font-display text-lg font-semibold leading-tight">{tr('Edit series')}</h3>
@@ -194,7 +194,7 @@ function SeriesEditModal({ id, series, onClose, onSaved }: { id: string; series:
                                 else if (e.key === 'Backspace' && !genreDraft && genres.length) setGenres(genres.slice(0, -1)); }}
             onBlur={() => addGenre(genreDraft)}
             placeholder={genres.length ? 'Add…' : 'Action, Fantasy…'}
-            className="min-w-[8rem] flex-1 bg-transparent px-1 py-1 text-sm text-fog-50 outline-none"
+            className="min-w-[8rem] flex-1 bg-transparent px-1 py-1 text-sm text-fog-50 outline-hidden"
           />
         </div>
         <p className="mt-1 text-[11px] text-fog-500">Genres drive Browse and the recommendation rails. Clearing them all means this series genuinely has none.</p>
@@ -245,7 +245,7 @@ function CollectionSheet({ seriesId, onClose }: { seriesId: string; onClose: () 
     } catch { toast('Failed to create', 'error'); }
   };
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-ink-950/70 p-4 backdrop-blur-sm" onClick={onClose}>
+    <div className="fixed inset-0 z-50 grid place-items-center bg-ink-950/70 p-4 backdrop-blur-xs" onClick={onClose}>
       <div className="glass w-full max-w-sm rounded-2xl border border-ink-700 p-5" onClick={(e) => e.stopPropagation()}>
         <div className="mb-3 flex items-start justify-between gap-3">
           <h3 className="font-display text-lg font-semibold">{tr('Add to collection')}</h3>
@@ -347,7 +347,7 @@ function RenameFolderModal({ id, folder, title, onClose, onSaved }: {
             value={next}
             onChange={(e) => setNext(e.target.value)}
             spellCheck={false}
-            className="w-full rounded-lg border border-ink-700 bg-ink-900/60 px-3 py-2 font-mono text-sm text-fog-100 outline-none focus:border-accent/60"
+            className="w-full rounded-lg border border-ink-700 bg-ink-900/60 px-3 py-2 font-mono text-sm text-fog-100 outline-hidden focus:border-accent/60"
           />
         </label>
         <p className="text-[11px] text-fog-600">{tr('Currently')}<span className="font-mono">{folder}</span></p>
@@ -394,7 +394,7 @@ function ChapterEditModal({ book, onClose, onSaved }: { book: Book; onClose: () 
   };
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-ink-950/70 p-4 backdrop-blur-sm" onClick={onClose}>
+    <div className="fixed inset-0 z-50 grid place-items-center bg-ink-950/70 p-4 backdrop-blur-xs" onClick={onClose}>
       <div className="glass w-full max-w-sm rounded-2xl border border-ink-700 p-5" onClick={(e) => e.stopPropagation()}>
         <div className="mb-3 flex items-start justify-between gap-3">
           <h3 className="font-display text-lg font-semibold leading-tight">{tr('Edit chapter')}</h3>
@@ -787,7 +787,7 @@ function SeriesInner() {
   return (
     <div className="min-h-screen-d">
       {/* sticky back bar */}
-      <div className="safe-top sticky top-0 z-30 flex items-center gap-2 bg-gradient-to-b from-ink-950 to-transparent px-4 pb-3 lg:static lg:bg-none lg:px-0 lg:py-4">
+      <div className="safe-top sticky top-0 z-30 flex items-center gap-2 bg-linear-to-b from-ink-950 to-transparent px-4 pb-3 lg:static lg:bg-none lg:px-0 lg:py-4">
         <button onClick={back} className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-ink-800/70 text-fog-100 backdrop-blur lg:bg-ink-850">
           <IcChevronLeft width={22} height={22} />
         </button>
@@ -797,7 +797,7 @@ function SeriesInner() {
       {/* banner — real art pulled from the internet (AniList), genre-banner fallback */}
       <div className="relative -mt-[58px] h-64 overflow-hidden lg:mt-0 lg:h-[22rem] lg:rounded-3xl">
         {series && <Backdrop seriesId={id} genres={series.metadata?.genres} version={series.artVersion} className="absolute inset-0" />}
-        <div className="absolute inset-0 bg-gradient-to-t from-ink-950 via-ink-950/65 to-ink-950/30" />
+        <div className="absolute inset-0 bg-linear-to-t from-ink-950 via-ink-950/65 to-ink-950/30" />
         <div className="pointer-events-none absolute inset-0" style={{ background: 'radial-gradient(85% 95% at 22% 0%, rgb(var(--cover, 124 92 255) / 0.32), transparent 62%)' }} />
         {/* desktop title-over-art (Jellyfin style) — offset to the right of the floating poster */}
         <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.55, delay: 0.08, ease: [0.22, 0.61, 0.36, 1] }}

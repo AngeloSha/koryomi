@@ -55,7 +55,7 @@ function SearchInner() {
             onChange={(e) => setQ(e.target.value)}
             onBlur={() => remember(debounced)}
             placeholder={tr('Search your library…')}
-            className="w-full bg-transparent text-base text-fog-50 outline-none placeholder:text-fog-500"
+            className="w-full bg-transparent text-base text-fog-50 outline-hidden placeholder:text-fog-500"
           />
           {q && (
             <button onClick={() => setQ('')} className="text-fog-500">

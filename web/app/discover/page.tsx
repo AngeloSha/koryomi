@@ -291,7 +291,7 @@ export default function DiscoverPage() {
               <input value={q} onChange={(e) => setQ(e.target.value)}
                 onKeyDown={(e) => { if (e.key === 'Escape') backToNewest(); }}
                 placeholder={tr('Search all sources…')} aria-label={tr('Search all sources…')}
-                className="w-full bg-transparent py-2.5 text-sm text-fog-50 outline-none placeholder:text-fog-500" />
+                className="w-full bg-transparent py-2.5 text-sm text-fog-50 outline-hidden placeholder:text-fog-500" />
               {q && (
                 <button type="button" onClick={backToNewest} aria-label={tr('Close')} className="shrink-0 text-fog-500 hover:text-fog-200">
                   <IcX width={15} height={15} />

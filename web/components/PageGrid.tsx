@@ -41,7 +41,7 @@ export function PageGrid({ title, pages, current, onPick, onClose }: {
               ${p.idx === current ? 'border-accent ring-1 ring-accent' : 'border-ink-700 hover:border-ink-500'}`}
           >
             <Thumb src={p.src} n={p.number} />
-            <span className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 to-transparent pb-0.5 pt-3 text-[10px] font-medium tabular-nums text-white/90">
+            <span className="absolute inset-x-0 bottom-0 bg-linear-to-t from-black/85 to-transparent pb-0.5 pt-3 text-[10px] font-medium tabular-nums text-white/90">
               {p.number}
             </span>
           </button>

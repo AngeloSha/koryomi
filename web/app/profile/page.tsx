@@ -251,8 +251,11 @@ export default function ProfilePage() {
               <Backdrop seriesId={anchorId} hero className="absolute inset-0" />
             </motion.div>
           )}
-          <div aria-hidden className="absolute inset-0 bg-gradient-to-t from-ink-950 via-ink-950/72 to-ink-950/30" />
-          <div aria-hidden className="absolute inset-0 bg-gradient-to-r from-ink-950/85 via-ink-950/30 to-transparent rtl:bg-gradient-to-l" />
+          {/* the `via` stop at 72% was here and never rendered -- v3's opacity scale is multiples of 5, so it matched
+              nothing. v4 would honour it and darken this scrim; keeping the two stops that always applied
+              keeps the page looking the way it has shipped. */}
+          <div aria-hidden className="absolute inset-0 bg-linear-to-t from-ink-950 to-ink-950/30" />
+          <div aria-hidden className="absolute inset-0 bg-linear-to-r from-ink-950/85 via-ink-950/30 to-transparent rtl:bg-linear-to-l" />
           {/* A CSS radial has no logical direction keyword, so the anchor comes from --start, which flips to
               100% under dir="rtl". Tailwind's rtl: variant cannot mirror a gradient position. */}
           <div aria-hidden className="pointer-events-none absolute inset-0"
@@ -1037,7 +1040,7 @@ function AdminCard({ seriesId, span = '' }: { seriesId?: string; span?: string }
     <Link href="/admin/" className={`card grad-border relative isolate block overflow-hidden ${span}`}>
       <div className="relative h-24 lg:h-28">
         {seriesId && <Backdrop seriesId={seriesId} className="absolute inset-0" />}
-        <div aria-hidden className="absolute inset-0 bg-gradient-to-r from-ink-950 via-ink-950/80 to-transparent rtl:bg-gradient-to-l" />
+        <div aria-hidden className="absolute inset-0 bg-linear-to-r from-ink-950 via-ink-950/80 to-transparent rtl:bg-linear-to-l" />
         <div className="absolute inset-0 flex items-center justify-between gap-3 px-4">
           <span className="min-w-0 font-display text-sm font-semibold text-fog-50">{tr('Admin and server settings')}</span>
           <IcChevronRight className="shrink-0 text-fog-400" width={18} height={18} />

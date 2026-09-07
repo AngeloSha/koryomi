@@ -88,7 +88,7 @@ export function DiscoverHero({ slides, onPick }: { slides: Trending[]; onPick: (
       {/* Light, matching the home hero: the art is the point, and the type carries its own shadow. The first
           version stacked a full-height black gradient, an 85% inline scrim and a radial, which between them
           left a hero that looked like it had failed to load. */}
-      <span aria-hidden className="absolute inset-0 bg-gradient-to-t from-ink-950 via-ink-950/30 to-transparent" />
+      <span aria-hidden className="absolute inset-0 bg-linear-to-t from-ink-950 via-ink-950/30 to-transparent" />
       <span aria-hidden className="scrim-soft absolute inset-0" />
       <span aria-hidden className="pointer-events-none absolute inset-0"
         style={{ background: 'radial-gradient(60% 70% at var(--start) 70%, rgb(var(--accent) / 0.14), transparent 70%)' }} />

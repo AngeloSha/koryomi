@@ -107,7 +107,7 @@ function BrowseInner() {
               <Img key={id} src={img.seriesThumb(id)} alt="" className="h-full w-full" imgClassName="object-top" />
             ))}
           </div>
-          <div aria-hidden className="absolute inset-0 bg-gradient-to-t from-ink-950 via-ink-950/70 to-ink-950/40" />
+          <div aria-hidden className="absolute inset-0 bg-linear-to-t from-ink-950 via-ink-950/70 to-ink-950/40" />
           <div aria-hidden className="pointer-events-none absolute inset-0"
             style={{ background: 'radial-gradient(80% 120% at var(--start) 100%, rgb(var(--accent) / 0.24), transparent 62%)' }} />
           <div className="absolute inset-x-0 bottom-0 px-4 pb-4 lg:px-8 lg:pb-6">

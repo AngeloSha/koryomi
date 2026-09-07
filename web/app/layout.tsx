@@ -1,5 +1,9 @@
 import type { Metadata, Viewport } from 'next';
 import localFont from 'next/font/local';
+// ⚠️ These are `--ff-*`, not `--font-*`, and that is load-bearing under Tailwind v4. A `@theme` entry named
+// `--font-sans` both defines the token and emits the custom property, so a next/font variable of the SAME
+// name lands on <html> as `--font-sans: <face>` while the theme says `--font-sans: var(--font-sans), ...`
+// -- self-referential, resolving to nothing, and every piece of text falls back to the browser default.
 import './globals.css';
 import { Providers } from './providers';
 import { AppShell } from '@/components/AppShell';
@@ -10,19 +14,19 @@ import { AppShell } from '@/components/AppShell';
 // in the repo also means the image builds behind a firewall and with no third-party call.
 const display = localFont({
   src: './fonts/SpaceGrotesk-latin.woff2',
-  variable: '--font-display',
+  variable: '--ff-display',
   display: 'swap',
   weight: '300 700',
 });
 const sans = localFont({
   src: './fonts/Inter-latin.woff2',
-  variable: '--font-sans',
+  variable: '--ff-sans',
   display: 'swap',
   weight: '100 900',
 });
 const brand = localFont({
   src: './fonts/Unbounded-latin.woff2',
-  variable: '--font-brand',
+  variable: '--ff-brand',
   display: 'swap',
   weight: '600 800',
 });

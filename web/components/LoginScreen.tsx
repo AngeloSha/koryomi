@@ -82,7 +82,7 @@ export function LoginScreen() {
     setBusy(false);
   };
 
-  const inputCls = `w-full rounded-2xl border bg-black/40 px-4 py-3.5 text-lg text-fog-50 outline-none transition placeholder:text-ink-500 ${err ? 'border-red-500/70' : 'border-white/10 focus:border-accent'}`;
+  const inputCls = `w-full rounded-2xl border bg-black/40 px-4 py-3.5 text-lg text-fog-50 outline-hidden transition placeholder:text-ink-500 ${err ? 'border-red-500/70' : 'border-white/10 focus:border-accent'}`;
   const labelCls = 'mb-2 block text-xs font-medium uppercase tracking-wider text-fog-500';
 
   return (
@@ -106,7 +106,13 @@ export function LoginScreen() {
           className="h-full w-full object-cover"
         />
         {/* Heavier than the single key art needed: a busy wall takes more separating from the form. */}
-        <div className="absolute inset-0 bg-gradient-to-t from-ink-950 via-ink-950/88 to-ink-950/62" />
+        {/* ⚠️ No a `via` stop at 88% and a `to` stop at 62% here any more, and that is not a simplification: those two
+            classes never rendered. Tailwind v3's opacity scale is multiples of 5, so 88% and 62% matched
+            nothing and were dropped silently -- this scrim has always been the plain black-to-transparent
+            fade it now says it is. Tailwind v4 accepts any integer, so leaving them in would have made a
+            dependency bump quietly restyle the sign-in screen (the art goes muddy; see the comparison in
+            CHANGELOG v0.23.0). Changing this look is a design decision, not a migration. */}
+        <div className="absolute inset-0 bg-linear-to-t from-ink-950 to-transparent" />
         <div className="absolute inset-0" style={{ background: 'radial-gradient(58% 46% at 50% 42%, rgb(0 0 0 / 0.72), transparent 72%)' }} />
         <div className="absolute inset-0" style={{ background: 'radial-gradient(60% 50% at 50% 18%, rgb(var(--accent) / 0.18), transparent 70%)' }} />
       </div>

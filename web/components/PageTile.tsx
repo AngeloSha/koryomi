@@ -45,7 +45,7 @@ export function PageTile({
       />
       {/* The scrim is part of the tile, not a hover affordance: a page number that only appears on hover is
           invisible on a phone, which is where this page is mostly read. */}
-      <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 via-black/45 to-transparent px-2.5 pb-2 pt-6">
+      <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-linear-to-t from-black/85 via-black/45 to-transparent px-2.5 pb-2 pt-6">
         {/* One key, not "Ch." + number + "p." glued together: a translator needs the whole phrase to reorder
             it, and in RTL the fragments would run in source order regardless of the surrounding direction. */}
         <p className="truncate text-[11px] font-medium text-white/95">

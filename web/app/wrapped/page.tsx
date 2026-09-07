@@ -97,7 +97,10 @@ function Wrapped() {
       <div className="relative mx-4 mt-2 overflow-hidden rounded-4xl border border-ink-700/60 p-6 shadow-lift lg:mx-auto lg:max-w-2xl">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src={ART.wrapped} alt="" className="absolute inset-0 h-full w-full object-cover opacity-70" />
-        <div className="absolute inset-0 bg-gradient-to-t from-ink-950 via-ink-950/72 to-ink-950/30" />
+        {/* the `via` stop at 72% was here and never rendered -- v3's opacity scale is multiples of 5, so it matched
+              nothing. v4 would honour it and darken this scrim; keeping the two stops that always applied
+              keeps the page looking the way it has shipped. */}
+        <div className="absolute inset-0 bg-linear-to-t from-ink-950 to-ink-950/30" />
         <div className="relative">
           <Wordmark className="text-xl" />
           <p className="mt-6 text-sm text-fog-300">{year === thisYear ? tr('This year you read') : tr('In {y} you read', { y: String(year) })}</p>

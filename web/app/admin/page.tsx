@@ -142,7 +142,7 @@ function AdminHero({ onBack }: { onBack: () => void; onScan?: undefined }) {
     <div className="bleed relative isolate mb-6 overflow-hidden lg:mt-2 lg:rounded-b-3xl">
       {rnd?.seriesId && <Backdrop seriesId={rnd.seriesId} className="absolute inset-0" />}
       {/* Drowned deliberately: this is a wash to sit text on, not a picture to look at. */}
-      <div className="absolute inset-0 bg-gradient-to-t from-ink-950 via-ink-950/90 to-ink-950/70" />
+      <div className="absolute inset-0 bg-linear-to-t from-ink-950 via-ink-950/90 to-ink-950/70" />
       {/* The bloom takes the verdict's colour, so the whole top of the page goes amber the moment a check
           fails. One ternary, no assets, and every pixel of it is data. */}
       <div aria-hidden className="pointer-events-none absolute inset-0"
@@ -238,7 +238,7 @@ function Overview({ onTab }: { onTab: (t: Tab) => void }) {
                   <Img src={img.seriesThumb(m.last_series_id)} alt=""
                     className="pointer-events-none absolute inset-0 h-full w-full scale-110 opacity-25 blur-[2px]" />
                 )}
-                <div aria-hidden className="absolute inset-0 bg-gradient-to-r from-ink-950 via-ink-950/80 to-ink-950/35 rtl:bg-gradient-to-l" />
+                <div aria-hidden className="absolute inset-0 bg-linear-to-r from-ink-950 via-ink-950/80 to-ink-950/35 rtl:bg-linear-to-l" />
                 <div className="relative flex items-center gap-3">
                   <Avatar avatar={m.avatar} size={48} />
                   <div className="min-w-0">
@@ -873,7 +873,7 @@ function ArtPicker({ row, onClose, onApplied }: { row: ArtRow; onClose: () => vo
     setBusy(false);
   };
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-ink-950/70 p-4 backdrop-blur-sm" onClick={onClose}>
+    <div className="fixed inset-0 z-50 grid place-items-center bg-ink-950/70 p-4 backdrop-blur-xs" onClick={onClose}>
       <div className="glass max-h-[88vh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-ink-700 p-5" onClick={(e) => e.stopPropagation()}>
         <div className="mb-3 flex items-start justify-between gap-3">
           <h3 className="font-display text-lg font-semibold leading-tight">{row.title}</h3>
@@ -1913,7 +1913,7 @@ function Extensions({ span = '' }: { span?: string }) {
                 <div className="flex gap-2 pt-1">
                   <input value={repoUrl} onChange={(e) => setRepoUrl(e.target.value)} placeholder="https://…/index.json"
                     autoCapitalize="none" autoCorrect="off"
-                    className="min-w-0 flex-1 rounded-lg border border-ink-700 bg-ink-850 px-2.5 py-1.5 text-xs text-fog-100 outline-none focus:border-accent" />
+                    className="min-w-0 flex-1 rounded-lg border border-ink-700 bg-ink-850 px-2.5 py-1.5 text-xs text-fog-100 outline-hidden focus:border-accent" />
                   <button onClick={addRepo} disabled={addingRepo || !repoUrl.trim()} className="btn-accent shrink-0 px-3 py-1.5 text-xs disabled:opacity-50">
                     {addingRepo ? 'Checking…' : 'Add'}
                   </button>
@@ -1946,9 +1946,9 @@ function Extensions({ span = '' }: { span?: string }) {
           {/* search + filters */}
           <div className="mb-2 flex flex-wrap items-center gap-2">
             <input value={q2} onChange={(e) => setQ2(e.target.value)} placeholder={tr('Search extensions…')}
-              className="min-w-[150px] flex-1 rounded-lg border border-ink-700 bg-ink-850 px-2.5 py-1.5 text-xs text-fog-100 outline-none focus:border-accent" />
+              className="min-w-[150px] flex-1 rounded-lg border border-ink-700 bg-ink-850 px-2.5 py-1.5 text-xs text-fog-100 outline-hidden focus:border-accent" />
             <select value={lang} onChange={(e) => setLang(e.target.value)}
-              className="rounded-lg border border-ink-700 bg-ink-850 px-2 py-1.5 text-xs text-fog-100 outline-none focus:border-accent">
+              className="rounded-lg border border-ink-700 bg-ink-850 px-2 py-1.5 text-xs text-fog-100 outline-hidden focus:border-accent">
               <option value="">{tr('All languages')}</option>
               {(cat?.langs || []).map((l) => <option key={l} value={l}>{l}</option>)}
             </select>
