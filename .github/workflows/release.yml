@@ -146,7 +146,7 @@ jobs:
           echo "::notice title=${{ matrix.image }}:${{ github.ref_name }}::$digest   (this is the digest an Umbrel manifest pins)"
       # A signed statement, verifiable with `gh attestation verify oci://<image>:<tag> --owner AngeloSha`,
       # that this index was built by this workflow from this commit.
-      - uses: actions/attest-build-provenance@v2
+      - uses: actions/attest-build-provenance@v4
         with:
           subject-name: ${{ matrix.image }}
           subject-digest: ${{ steps.index.outputs.digest }}
