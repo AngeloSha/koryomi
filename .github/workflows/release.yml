@@ -90,7 +90,7 @@ jobs:
         run: |
           mkdir -p digests
           echo "${{ steps.build.outputs.digest }}" > "digests/${{ matrix.service }}-${{ matrix.arch }}"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: digest-${{ matrix.service }}-${{ matrix.arch }}
           path: digests/*

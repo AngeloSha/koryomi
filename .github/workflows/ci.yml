@@ -89,7 +89,7 @@ jobs:
         run: docker rm -f uchiyomi-e2e uchiyomi-e2e-db uchiyomi-e2e-embedded || true
       - name: Keep the screenshots when it fails
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: e2e-screenshots
           path: |
