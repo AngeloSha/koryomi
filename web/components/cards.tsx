@@ -7,7 +7,8 @@ import { chapterLabel, progressOf, relativeTime } from '@/lib/format';
 import { deviceId } from '@/lib/device';
 import { coverTriplet } from '@/lib/theme';
 import { Img, ProgressBar } from './ui';
-import { IcHeart, IcPlay, IcPlus } from './icons';
+import { IcHeart, IcPlay, IcPlus, IcWifiOff } from './icons';
+import { useOfflineSeries } from '@/lib/useOfflineSeries';
 import { t as tr } from '@/lib/i18n';
 
 /** Pointer-tracked 3D tilt + moving glare for cover cards. Desktop-only (hover+fine pointer),
@@ -73,6 +74,7 @@ export function SeriesCard({ series, w = 'w-32', eager = false }: { series: Seri
   // total chapter count -- so the badge would claim every chapter is unread. Preferring the enriched field
   // means such a rail shows no badge rather than a wrong one.
   const unread = series.yomi?.unread ?? series.booksUnreadCount ?? 0;
+  const savedOffline = useOfflineSeries().has(series.id);
   const tilt = useTilt();
   const tint = useTileTint(series.color);
   return (
@@ -93,6 +95,13 @@ export function SeriesCard({ series, w = 'w-32', eager = false }: { series: Seri
         {unread > 0 && (
           <span className="absolute right-2 top-2 z-10 rounded-full bg-accent px-2 py-0.5 text-[11px] font-bold text-black shadow-glow">
             {unread > 99 ? '99+' : unread}
+          </span>
+        )}
+        {/* Bottom-right: NEW owns bottom-left, the unread count owns top-right, favourite owns top-left. */}
+        {savedOffline && (
+          <span title={tr('Saved for offline')} aria-label={tr('Saved for offline')}
+            className="absolute bottom-1.5 right-1.5 z-10 rounded-full bg-black/60 p-1 text-fog-200 backdrop-blur">
+            <IcWifiOff width={11} height={11} />
           </span>
         )}
         {(series.yomi?.newCount ?? 0) > 0 && (
@@ -148,6 +157,7 @@ export function SeriesTile({ series, eager = false, selectable, selected, onTogg
   // total chapter count -- so the badge would claim every chapter is unread. Preferring the enriched field
   // means such a rail shows no badge rather than a wrong one.
   const unread = series.yomi?.unread ?? series.booksUnreadCount ?? 0;
+  const savedOffline = useOfflineSeries().has(series.id);
   const tint = useTileTint(series.color);
   const Wrap: any = selectable ? 'button' : Link;
   const wrapProps = selectable
@@ -167,6 +177,13 @@ export function SeriesTile({ series, eager = false, selectable, selected, onTogg
         {series.yomi?.favorite && (
           <span className="absolute left-1.5 top-1.5 z-10 rounded-full bg-black/55 p-1 text-accent backdrop-blur">
             <IcHeart width={12} height={12} fill="currentColor" stroke="none" />
+          </span>
+        )}
+        {/* Bottom-right: NEW owns bottom-left, the unread count owns top-right, favourite owns top-left. */}
+        {savedOffline && (
+          <span title={tr('Saved for offline')} aria-label={tr('Saved for offline')}
+            className="absolute bottom-1.5 right-1.5 z-10 rounded-full bg-black/60 p-1 text-fog-200 backdrop-blur">
+            <IcWifiOff width={11} height={11} />
           </span>
         )}
         {unread > 0 && (

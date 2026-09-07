@@ -22,7 +22,7 @@ import { IcChevronLeft, IcChevronRight, IcSliders, IcRefresh, IcGrid } from '@/c
 import { t as tr } from '@/lib/i18n';
 
 interface PageDim { number: number; width: number | null; height: number | null }
-interface Chapter { id: string; seriesId: string; seriesTitle: string; title: string; pages: PageDim[]; offline: boolean }
+interface Chapter { id: string; seriesId: string; seriesTitle: string; title: string; pages: PageDim[]; offline: boolean; readingDirection?: string | null }
 interface ChapterRef { id: string; label: string }
 interface FlatItem { ci: number; number: number; width: number | null; height: number | null; key: string; firstOfChapter: boolean }
 
@@ -33,7 +33,7 @@ const DIVIDER_H = 60;
 async function loadChapter(bookId: string): Promise<Chapter | null> {
   const off = await getOfflineChapter(bookId);
   if (off) {
-    return { id: bookId, seriesId: off.seriesId, seriesTitle: off.seriesTitle, title: off.title, pages: off.pages, offline: true };
+    return { id: bookId, seriesId: off.seriesId, seriesTitle: off.seriesTitle, title: off.title, pages: off.pages, offline: true, readingDirection: off.readingDirection };
   }
   try {
     const b = await api<Book>(`/api/books/${bookId}`);
@@ -167,8 +167,13 @@ function ReaderInner() {
       }
       if (!alive) return;
       setChapters([first]);
-      if (first.offline && first.pages[0] && first.pages[0].width && first.pages[0].height) {
-        // offline reading-direction hint not available here; keep current pref
+      // The downloaded record has carried `readingDirection` since the store's v2 schema, and this used to
+      // throw it away -- the comment here said the hint "is not available", when it was one field along the
+      // object already in hand. The consequence was not subtle: right-to-left manga read offline paired its
+      // double-page spreads in the wrong order, on exactly the titles most likely to be read on a plane.
+      // Applied before the network attempt below so it holds even when that attempt never returns.
+      if (first.offline && first.readingDirection) {
+        setRtl(first.readingDirection === 'RIGHT_TO_LEFT');
       }
       // chapter list for prev/next/jump
       try {
@@ -189,7 +194,7 @@ function ReaderInner() {
       try {
         const s = await api<Series>(`/api/series/${first.seriesId}`);
         if (alive) setRtl(s?.metadata?.readingDirection === 'RIGHT_TO_LEFT');
-      } catch {}
+      } catch { /* offline: the downloaded record's direction, set above, stands */ }
       setReady(true);
     })();
     return () => {
