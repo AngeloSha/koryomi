@@ -1,6 +1,7 @@
 # Uchiyomi — User Guide
 
-Everything you can do in Uchiyomi, screen by screen. For install/configuration see the [README](../README.md).
+Everything you can do in Uchiyomi, screen by screen. To install it see [INSTALL.md](INSTALL.md); for
+environment variables see [CONFIGURATION.md](CONFIGURATION.md).
 
 - [1. First run & setup](#1-first-run--setup)
 - [2. Signing in](#2-signing-in)
@@ -371,7 +372,10 @@ no route that answers for a library a member cannot open.
 
 One limit worth knowing: restricting access applies immediately on the server, but chapters and images a
 member already opened or downloaded may remain in that browser's own offline storage until they clear it.
-The server cannot reach into a device it does not control.
+The server cannot reach into a device it does not control. The same applies to the offline grace that lets
+the app open with no connection: it ends when that member signs out, or when their session would have
+expired, but until then a device already holding their downloads can still read them. Signing them out
+everywhere ends it on the next occasion that device reaches the server.
 
 **Providers:** the source health + Add-a-site controls from section 7. This tab also holds **Import a list**,
 for moving a library over from another app:
@@ -452,7 +456,23 @@ standalone, full-screen app icon.
 
 **Offline:** favorite a series (or use **Download all** / a chapter's ⬇), and those chapters are stored on the
 device for reading with no connection. The **Downloads** screen shows what's saved and a **Sync now** button;
-with smart-offline on, your favorites' next unread chapters auto-download while you're online.
+with smart-offline on, your favorites' next unread chapters auto-download while you're online. A cover with a
+small ⌁ badge has something saved on this device.
+
+**Opening the app with no connection at all** — on a plane, in a tunnel — works: launch it from the home
+screen and it goes straight to **Downloads**, with a banner naming the account it is showing. Everything that
+needs the server (Discover, search, adding series, the admin panel) is dimmed rather than hidden, because
+there is nothing behind it until you reconnect. The moment you do, the banner clears and any reading you did
+offline is sent up.
+
+Two things worth knowing about that:
+
+- **It lasts as long as your session would.** The device remembers who was signed in so it can find *your*
+  downloads, and that memory expires exactly when the login itself would have (`REFRESH_TTL_DAYS`, 60 days by
+  default). After that, opening offline asks you to sign in.
+- **Signing out ends it immediately.** On a shared tablet this is the thing that matters: sign out and the
+  next offline launch asks for a password and lists nothing, even though the files are still on the disk.
+  They become readable again — without re-downloading — when that same account signs back in.
 
 ---
 
