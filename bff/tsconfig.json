@@ -1,8 +1,14 @@
 {
   "compilerOptions": {
     "target": "ES2022",
-    "module": "CommonJS",
-    "moduleResolution": "Node",
+    // TypeScript 7 removed the classic `node10` resolver, which is what `"moduleResolution": "Node"` meant
+    // -- and it refuses `module: CommonJS` alongside a modern resolver, so both move together. `node16`
+    // still emits CommonJS here (package.json says `"type": "commonjs"`), so the shipped `dist/` is
+    // byte-for-byte the same shape it always was; only the RESOLUTION algorithm changed, to the one that
+    // reads `exports` maps. `nodenext` also compiles clean but re-targets itself on every TS upgrade.
+    // Reintroduce by setting either back to "CommonJS"/"Node": tsc 7 fails with TS5108/TS5110.
+    "module": "node16",
+    "moduleResolution": "node16",
     "lib": [
       "ES2022"
     ],
