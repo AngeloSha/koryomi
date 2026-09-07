@@ -474,6 +474,17 @@ Two things worth knowing about that:
   next offline launch asks for a password and lists nothing, even though the files are still on the disk.
   They become readable again — without re-downloading — when that same account signs back in.
 
+**Which devices this works on.** Everything, with one Apple-shaped exception. Chrome, Edge and Firefox — on
+Windows, macOS, Linux and Android, phone, tablet or laptop — keep downloads and the offline session until you
+sign out or the session expires; they only ever clear site data when the disk is genuinely short of space.
+
+⚠️ **On iPhone, iPad and Safari on the Mac, add it to the Home Screen or the Dock.** Left as an ordinary
+Safari tab, WebKit deletes *all* of a site's storage after seven days of not tapping on it — the downloaded
+chapters and the offline session together — so a 60-day grace quietly becomes a seven-day one. Installing it
+exempts the app from that, which is why "Add to Home Screen" is worth doing on Apple devices even if you like
+using it in a tab. This applies to Chrome and Firefox on iOS too: they use WebKit underneath, and each one
+keeps its own separate storage. Private / Incognito windows keep nothing at all once closed, anywhere.
+
 ---
 
 ## 12. Backups & restore
@@ -562,6 +573,13 @@ rate-limited — wait a bit, or try another source.
 
 **"Install app" / Add to Home Screen isn't offered.** PWAs need a secure context: serve Uchiyomi over HTTPS (or
 `http://localhost`). On iOS, use Safari → Share → Add to Home Screen.
+
+**Offline doesn't work over `http://192.168.…`.** Same cause, and worth stating on its own because it is the
+one that surprises people: the service worker is what serves the app with no connection, and browsers only
+register a service worker in a secure context. Over plain HTTP on a LAN address there is no worker, so
+opening the app with no network shows the browser's error page rather than your downloads — even though the
+chapters are on the device. Reading over HTTP while connected works fine. If you want offline, put it behind
+HTTPS.
 
 **I lost my 2FA device.** Enter one of the recovery codes (shown when you enabled 2FA) on the login screen instead
 of the 6-digit code — that is the intended way back in, so keep them somewhere that is not the phone.
