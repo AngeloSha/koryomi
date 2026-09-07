@@ -81,6 +81,25 @@ function Moments() {
     del.mutate(id);
   };
 
+  // Un-saving a page. `DELETE /api/bookmarks/:bookId/:page` has existed since the first commit with the
+  // reader's star as its only caller, so a page saved by a mis-tap could be un-saved only by navigating
+  // back to that exact page of that exact chapter and tapping the star again -- on the one screen that
+  // exists to show you your saved pages.
+  //
+  // Confirmed ONLY when a note is attached, which is the same rule the note delete above states: a bare
+  // bookmark costs one tap to recreate, so a dialog on every removal is friction for nothing, but a note
+  // is something you wrote and deleting the page deletes it with no way back.
+  const unsave = useMutation({
+    mutationFn: (m: Bookmark) =>
+      api(`/api/bookmarks/${encodeURIComponent(m.book_id)}/${m.page}`, { method: 'DELETE' }),
+    onSuccess: () => { toast(tr('Removed from Moments'), 'success'); qc.invalidateQueries({ queryKey: ['bookmarks'] }); },
+    onError: () => toast(tr('Could not remove that page'), 'error'),
+  });
+  const confirmUnsave = (m: Bookmark) => {
+    if (m.note && !window.confirm(tr('Remove this page? The note on it goes too, and that cannot be undone.'))) return;
+    unsave.mutate(m);
+  };
+
   // `PUT /api/bookmarks/:bookId/:page` has always accepted a note; nothing in the app ever sent one, so the
   // caption on a tile could render a note that was impossible to create. This is the missing half.
   const [editing, setEditing] = useState<Bookmark | null>(null);
@@ -159,6 +178,11 @@ function Moments() {
                     <button onClick={() => setEditing(m)} aria-label={m.note ? tr('Edit note') : tr('Add a note')}
                       className="absolute end-1.5 top-1.5 grid h-7 w-7 place-items-center rounded-full bg-black/55 text-white/85 backdrop-blur transition hover:bg-black/75 hover:text-white">
                       <IcPencil width={13} height={13} />
+                    </button>
+                    <button onClick={() => confirmUnsave(m)} disabled={unsave.isPending}
+                      aria-label={tr('Remove from Moments')}
+                      className="absolute end-1.5 top-10 grid h-7 w-7 place-items-center rounded-full bg-black/55 text-white/85 backdrop-blur transition hover:bg-black/75 hover:text-white disabled:opacity-40">
+                      <IcTrash width={13} height={13} />
                     </button>
                   </div>
                 ))}
