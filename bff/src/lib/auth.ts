@@ -132,12 +132,22 @@ export async function resolveOpdsBasic(authHeader?: string): Promise<OpdsIdentit
  * here rather than with a bare revoke is what lets `validateRefreshForRotation` tell a device that simply
  * moved on from a session someone deliberately ended.
  */
+/**
+ * When a refresh token minted right now would expire, in ms since the epoch.
+ *
+ * Published to the client so an installed app can honour the SAME expiry offline that the server would
+ * enforce online. It cannot work this out for itself: `REFRESH_TTL_DAYS` is an operator setting, and the
+ * cookie carrying the token is httpOnly, so the browser can neither read it nor see its lifetime. Hardcoding
+ * 60 days in the frontend would silently disagree with any operator who changed it.
+ */
+export const refreshExpiresAt = () => Date.now() + env.REFRESH_TTL_DAYS * 24 * 60 * 60 * 1000;
+
 export async function issueRefreshToken(
   userId: string,
   opts: { deviceId?: string; deviceName?: string; ip?: string | null; userAgent?: string | null; replaces?: string } = {},
 ): Promise<string> {
   const token = randomBytes(48).toString('hex');
-  const expires = new Date(Date.now() + env.REFRESH_TTL_DAYS * 24 * 60 * 60 * 1000);
+  const expires = new Date(refreshExpiresAt());
   const row = await one<{ id: string }>(
     `INSERT INTO refresh_tokens (user_id, token_hash, device_id, device_name, expires_at, ip, user_agent, last_seen)
      VALUES ($1, $2, $3, $4, $5, $6, $7, now())
@@ -185,9 +195,9 @@ export const REFRESH_GRACE_MS = 60_000;
 export async function validateRefreshForRotation(
   token: string,
   graceMs: number = REFRESH_GRACE_MS,
-): Promise<{ userId: string; id: string; deviceId: string | null; deviceName: string | null; stale: boolean } | null> {
-  const row = await one<{ id: string; user_id: string; device_id: string | null; device_name: string | null; revoked_at: Date | null }>(
-    `SELECT id, user_id, device_id, device_name, revoked_at FROM refresh_tokens
+): Promise<{ userId: string; id: string; deviceId: string | null; deviceName: string | null; stale: boolean; expiresAt: Date } | null> {
+  const row = await one<{ id: string; user_id: string; device_id: string | null; device_name: string | null; revoked_at: Date | null; expires_at: Date }>(
+    `SELECT id, user_id, device_id, device_name, revoked_at, expires_at FROM refresh_tokens
      WHERE token_hash = $1
        AND expires_at > now()
        AND (revoked_at IS NULL
@@ -199,6 +209,10 @@ export async function validateRefreshForRotation(
   return {
     userId: row.user_id, id: row.id, deviceId: row.device_id, deviceName: row.device_name,
     stale: row.revoked_at != null,
+    // ⚠️ The row's OWN expiry, for the stale-race branch in routes/auth.ts, which rotates nothing. Answering
+    // that branch with `refreshExpiresAt()` would hand the device a full fresh TTL every time two tabs raced
+    // -- an offline grace that renews itself without a single token ever being issued.
+    expiresAt: row.expires_at,
   };
 }
 

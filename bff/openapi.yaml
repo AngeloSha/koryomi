@@ -6,7 +6,7 @@
 openapi: 3.1.0
 info:
   title: Uchiyomi API
-  version: 0.23.0
+  version: 0.24.0
   description: "Everything the web app does, it does over this API. Session JWTs are for the browser; scripts
     use a personal API token (Profile -> Security -> API tokens), sent as `Authorization: Bearer uy_...`.
     Scopes: read (every token), write (anything that changes data), admin (the /api/admin surface, which also
@@ -190,9 +190,30 @@ paths:
       security: []
       responses:
         "200":
-          description: OK
+          description: >-
+            A new access token, the signed-in user, and when the refresh token itself expires.
+            The installed app persists `refreshExpiresAt` so it can honour the same expiry offline
+            that this server would enforce online -- it cannot derive it, because REFRESH_TTL_DAYS is
+            an operator setting and the cookie is httpOnly.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [accessToken, expiresIn, user, refreshExpiresAt]
+                properties:
+                  accessToken: { type: string }
+                  expiresIn: { type: integer, description: Access-token lifetime in seconds }
+                  user: { type: object, description: The same payload /auth/me returns }
+                  refreshExpiresAt:
+                    type: integer
+                    format: int64
+                    description: >-
+                      Refresh-token expiry, ms since the epoch. On the stale-rotation race this is the
+                      existing row's real expiry, not a fresh one -- rotating nothing must not extend it.
         "401":
           description: Not authenticated
+        "403":
+          description: The account has been disabled; every session was revoked
   /auth/logout:
     post:
       tags:

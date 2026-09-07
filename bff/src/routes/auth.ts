@@ -26,6 +26,7 @@ import {
   userIdOf,
   validateRefreshToken,
   validateRefreshForRotation,
+  refreshExpiresAt,
 } from '../lib/auth';
 import { generateRecoveryCodes, generateSecret, otpauthURL, sha256, verifyTotp } from '../lib/totp';
 import { oidcEnabled, oidcName, beginLogin, completeLogin, isAdminByGroup, type OidcClaims } from '../lib/oidc';
@@ -103,7 +104,7 @@ export default async function authRoutes(app: FastifyInstance) {
     const refresh = await issueRefreshToken(row.id, { ip: clientIp(req), userAgent: (req.headers['user-agent'] as string) || null });
     reply.setCookie(REFRESH_COOKIE, refresh, cookieOptions());
     setImgCookie(app, reply, row.id);
-    return reply.send({ ...signAccess(app, row.id, 'admin'), user: await userPayload(row.id) });
+    return reply.send({ ...signAccess(app, row.id, 'admin'), user: await userPayload(row.id), refreshExpiresAt: refreshExpiresAt() });
   });
 
   app.post('/auth/login', { config: { rateLimit: { max: 10, timeWindow: '5 minutes' } } }, async (req, reply) => {
@@ -158,7 +159,7 @@ export default async function authRoutes(app: FastifyInstance) {
     reply.setCookie(REFRESH_COOKIE, refresh, cookieOptions());
     setImgCookie(app, reply, user.id);
     await logAudit('login.ok', { userId: user.id, username, req });
-    return reply.send({ ...signAccess(app, user.id, user.role), user: await userPayload(user.id) });
+    return reply.send({ ...signAccess(app, user.id, user.role), user: await userPayload(user.id), refreshExpiresAt: refreshExpiresAt() });
   });
 
   // public branding + whether sign-up is open (for the login screen)
@@ -315,7 +316,7 @@ export default async function authRoutes(app: FastifyInstance) {
     const refresh = await issueRefreshToken(row!.id, { ip: clientIp(req), userAgent: (req.headers['user-agent'] as string) || null });
     reply.setCookie(REFRESH_COOKIE, refresh, cookieOptions());
     setImgCookie(app, reply, row!.id);
-    return reply.send({ ...signAccess(app, row!.id, 'user'), user: await userPayload(row!.id) });
+    return reply.send({ ...signAccess(app, row!.id, 'user'), user: await userPayload(row!.id), refreshExpiresAt: refreshExpiresAt() });
   });
 
   app.post('/auth/refresh', async (req, reply) => {
@@ -338,7 +339,7 @@ export default async function authRoutes(app: FastifyInstance) {
     // Hand back a fresh access token, rotate nothing, and leave the jar exactly as the winner left it.
     if (valid.stale) {
       setImgCookie(app, reply, valid.userId);
-      return reply.send({ ...signAccess(app, valid.userId, disabled?.role ?? 'user'), user: await userPayload(valid.userId) });
+      return reply.send({ ...signAccess(app, valid.userId, disabled?.role ?? 'user'), user: await userPayload(valid.userId), refreshExpiresAt: valid.expiresAt.getTime() });
     }
     const next = await issueRefreshToken(valid.userId, {
       deviceId: valid.deviceId ?? undefined,
@@ -349,7 +350,7 @@ export default async function authRoutes(app: FastifyInstance) {
     });
     reply.setCookie(REFRESH_COOKIE, next, cookieOptions());
     setImgCookie(app, reply, valid.userId);
-    return reply.send({ ...signAccess(app, valid.userId, disabled?.role ?? 'user'), user: await userPayload(valid.userId) });
+    return reply.send({ ...signAccess(app, valid.userId, disabled?.role ?? 'user'), user: await userPayload(valid.userId), refreshExpiresAt: refreshExpiresAt() });
   });
 
   app.post('/auth/logout', async (req, reply) => {
