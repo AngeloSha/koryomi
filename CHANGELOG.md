@@ -1,5 +1,45 @@
 # Changelog
 
+## v0.23.0 — 2026-09-07
+
+### Three gradients start rendering what they were written to render
+
+Tailwind v3's opacity scale is multiples of five. `via-ink-950/88`, `to-ink-950/62` and
+`via-ink-950/72` are not, so all three matched nothing and were dropped without a warning — the sign-in
+screen, the profile header and Wrapped have always drawn a lighter scrim than their code asked for. Tailwind
+v4 accepts any integer and would have started honouring them, which on the sign-in screen turns the cover
+collage to mud. They are removed rather than adopted: a dependency upgrade is not the moment to restyle a
+screen, and making it darker is a decision someone should make on purpose. It is the same shape as the
+fog-200 bug this project already keeps a test for — a value that simply produces nothing.
+
+### Tailwind 4
+
+The config file is gone; the theme is an `@theme` block in the stylesheet. Everything carried over, and the
+parts that could not be translated were rebuilt: the accent colour, which is themeable at runtime and had no
+v4 equivalent for its opacity placeholder; the font variables, which would have become self-referential and
+dropped the app to the browser's default typeface; and the placeholder colour, which v4 stopped providing, so
+every empty input on this black background would have read as filled. Four utilities changed meaning rather
+than name and were rewritten to keep what they meant.
+
+Two visible changes are kept on purpose. Hover styles no longer apply on touch devices, which is what a
+phone should do — no more state stuck on a card after a tap. And the wrapper the language switcher uses is
+finally invisible to layout; the folder it lives in was never scanned before.
+
+### An empty digest fails the build instead of half-publishing
+
+The release pipeline recorded whatever digest the build step produced, and that action only sets one when
+there is image metadata. An empty value went into the artifact the merge job trusts, and the merge matrix
+does not stop on a failed sibling — the exact route to a version tag over one architecture instead of two,
+which has happened twice. It now fails the build leg. The two publishing actions moved a major version each
+at the same time, checked against their source rather than their release notes.
+
+### Smaller things that were already built
+
+A saved page can be un-saved from Moments, which is where you go to look at saved pages; the API for it had
+existed since the first commit with no button anywhere. Wrapped draws the weekday breakdown it was already
+computing — it knew your busiest day and never showed the week behind it. And the README mentions Moments
+and the Reading Studio, which shipped three versions ago without ever being written down.
+
 ## v0.22.0 — 2026-09-07
 
 ### Next 16 and TypeScript 7, which had to arrive together
