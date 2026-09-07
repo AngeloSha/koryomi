@@ -35,6 +35,15 @@ const serverErrors = [];
 // badge on 2026-09-04 over one AniList cover. Noted, not counted; every other 5xx and console error still is.
 const thirdPartyCover = (url) => /\/img\/sources\/cover\?[^ ]*\bu=https?%3A/i.test(url || '');
 const thirdPartyNotes = [];
+// True only while the browser is being held offline on purpose. Inside that window a request FAILING is the
+// condition under test, not a defect -- see the note where it is set.
+let networkCut = false;
+const offlineNotes = [];
+// Every request the browser could not complete, with its RESOURCE TYPE. Printed only when the run is
+// already failing on console errors, so it costs nothing on a green run -- and on a red one it answers the
+// question a bare `Failed to load resource` cannot: what KIND of request this was. A document, a route
+// prefetch and an image miss read identically in the console and want completely different fixes.
+const failedRequests = [];
 let step = 0;
 
 const ok = (what) => console.log(`    [ ok ] ${what}`);
@@ -52,10 +61,20 @@ try {
   page.on('console', (m) => {
     // A 401 on /auth/me before signing in is expected noise, not a fault.
     if (m.type() === 'error' && !/401|auth\/me/.test(m.text())) {
-      if (thirdPartyCover(m.location()?.url)) thirdPartyNotes.push(`console @ ${page.url()}: ${m.location().url}`);
-      else consoleErrors.push(`${page.url()} :: ${m.text()}`);
+      const res = m.location()?.url;
+      if (thirdPartyCover(res)) thirdPartyNotes.push(`console @ ${page.url()}: ${res}`);
+      // A resource that could not load WHILE THE NETWORK IS DELIBERATELY CUT is what this suite asked for.
+      // Next prefetches the routes it can see links to, and with no network those prefetches fail; a
+      // prefetch is an optimisation, so nothing the reader does depends on one. What the offline tests
+      // actually assert -- that the chapter opens, that its pages decode out of IndexedDB, that neither the
+      // sign-in page nor a raw RSC payload appears -- is checked directly a few lines below and is not
+      // weakened by this. Narrow on purpose: only `Failed to load resource`, only inside the window, and
+      // every one of them is still printed at the end.
+      else if (networkCut && /Failed to load resource/.test(m.text())) offlineNotes.push(`${res || m.text()}`);
+      else consoleErrors.push(`${page.url()} :: ${m.text()}${res ? ` :: ${res}` : ''}`);
     }
   });
+  page.on('requestfailed', (r) => failedRequests.push(`${r.resourceType()} ${r.url()}`));
   page.on('response', (r) => {
     if (r.status() < 500) return;
     if (thirdPartyCover(r.url())) thirdPartyNotes.push(`${r.status()} ${r.url()}`);
@@ -330,6 +349,7 @@ try {
     if (saved.length < 2) console.log('    [ .. ] nothing downloaded, skipping');
     else {
       await page.setOfflineMode(true);
+      networkCut = true;
       try {
         const tapped = await page.evaluate((h) => {
           const a = [...document.querySelectorAll('a')].find((x) => x.getAttribute('href') === h);
@@ -356,6 +376,7 @@ try {
         }
       } finally {
         await page.setOfflineMode(false);
+        networkCut = false;
       }
     }
   }
@@ -781,6 +802,13 @@ console.log(`${fails.length} failure(s), ${consoleErrors.length} console error(s
 for (const f of fails) console.log(`  ${f}`);
 for (const c of [...new Set(consoleErrors)].slice(0, 10)) console.log(`  console: ${c.slice(0, 160)}`);
 for (const s of [...new Set(serverErrors)].slice(0, 10)) console.log(`  server:  ${s.slice(0, 160)}`);
+if (offlineNotes.length) {
+  console.log(`  ${offlineNotes.length} request(s) failed while the network was cut on purpose (noted, not counted):`);
+  for (const n of [...new Set(offlineNotes)].slice(0, 5)) console.log(`    ${n.slice(0, 160)}`);
+}
+if (consoleErrors.length) {
+  for (const r of [...new Set(failedRequests)].slice(0, 10)) console.log(`  failed:  ${r.slice(0, 160)}`);
+}
 if (thirdPartyNotes.length) {
   console.log(`  ${thirdPartyNotes.length} third-party cover(s) failed upstream (noted, not counted):`);
   for (const n of [...new Set(thirdPartyNotes)].slice(0, 5)) console.log(`    ${n.slice(0, 160)}`);
