@@ -883,9 +883,24 @@ try {
   // person to pick up the tablet inherits it -- and with it, the key to somebody else's library.
   //
   // Reintroduce by removing `clearOfflineIdentity()` from `clearLocalSession` in lib/auth.tsx.
+  //
+  // ⚠️ SIGN OUT THROUGH THE UI, not with `fetch('/auth/logout')`. The endpoint drops the server's cookie;
+  // it is the app's own `logout()` that clears the saved identity, and that is the half being tested. An
+  // earlier version of this block called the endpoint directly and passed locally -- but only because a
+  // helper further up had already emptied localStorage, so it was asserting nothing. CI, with different
+  // state, failed it correctly. A test that signs out by a route no user can take proves nothing about
+  // what happens when a user signs out.
   console.log('\n  signing out ends the offline grace');
-  await page.evaluate(() => fetch('/auth/logout', { method: 'POST', credentials: 'include' }).catch(() => {}));
-  await sleep(1500);
+  await page.goto(`${BASE}/profile`, { waitUntil: 'networkidle2', timeout: 60000 });
+  await sleep(2000);
+  const signedOutViaUi = await page.evaluate(() => {
+    const b = [...document.querySelectorAll('button')].find((x) => /sign out/i.test(x.textContent || ''));
+    if (!b) return false;
+    b.click();
+    return true;
+  });
+  if (!signedOutViaUi) bad('could not find the Sign out control on /profile');
+  await sleep(3000);
   await page.setOfflineMode(true);
   networkCut = true;
   try {
