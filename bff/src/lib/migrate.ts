@@ -587,6 +587,22 @@ CREATE TABLE IF NOT EXISTS push_subscriptions (
   PRIMARY KEY (user_id, endpoint)
 );
 
+-- Perceptual hash per page, for finding the pages that are not the story: a scanlator credit page is the
+-- same image in every chapter, so a hash that recurs across chapters of one series is furniture.
+--   `hash`     null means "looked at it and could not read it" -- distinct from no row, which means
+--              "not looked at yet". The job needs to tell those apart or it retries a broken page forever.
+--   `override` null = follow the heuristic, true = always skip, false = never skip. A person's decision
+--              outranks the count in BOTH directions and is never recomputed away.
+CREATE TABLE IF NOT EXISTS page_hashes (
+  book_id    text NOT NULL,
+  page       int  NOT NULL,
+  hash       text,
+  override   boolean,
+  checked_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (book_id, page)
+);
+CREATE INDEX IF NOT EXISTS page_hashes_hash_idx ON page_hashes (hash);
+
 -- Ledger for run-once DATA migrations. The DDL string above stays the home for everything idempotent
 -- (CREATE / ALTER ... IF NOT EXISTS, which can safely run on every boot). Anything that would corrupt data
 -- by running twice goes through runOnce() instead, which stamps this table IN THE SAME TRANSACTION as its
