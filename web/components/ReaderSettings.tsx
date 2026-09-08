@@ -82,16 +82,20 @@ export function ReaderSettings({
           </Row>
         )}
 
-        {/* Applies in both modes, so it sits outside the vertical-only block below. */}
-        <Row label={tr('Skip repeated pages')}>
-          <div className="grid grid-cols-2 gap-2">
-            <button onClick={() => set({ skipJunk: true })}
-              className={`rounded-2xl border py-3 text-sm ${prefs.skipJunk ? 'border-accent bg-accent-soft text-accent' : 'border-ink-700 text-fog-300'}`}>{tr('Skip')}</button>
-            <button onClick={() => set({ skipJunk: false })}
-              className={`rounded-2xl border py-3 text-sm ${!prefs.skipJunk ? 'border-accent bg-accent-soft text-accent' : 'border-ink-700 text-fog-300'}`}>{tr('Show all')}</button>
+        {/* Set in both modes. ⚠️ It cannot LOOK the same in both: a page-by-page view has no thin slide --
+            every slide is exactly one viewport wide -- so Collapse falls back to removing there, where an
+            unwanted page costs one swipe rather than a scroll and there is no flow to interrupt. */}
+        <Row label={tr('Repeated pages')}>
+          <div className="grid grid-cols-3 gap-2">
+            <button onClick={() => set({ junkPages: 'show' })}
+              className={`rounded-2xl border py-3 text-sm ${prefs.junkPages === 'show' ? 'border-accent bg-accent-soft text-accent' : 'border-ink-700 text-fog-300'}`}>{tr('Show all')}</button>
+            <button onClick={() => set({ junkPages: 'collapse' })}
+              className={`rounded-2xl border py-3 text-sm ${prefs.junkPages === 'collapse' ? 'border-accent bg-accent-soft text-accent' : 'border-ink-700 text-fog-300'}`}>{tr('Collapse')}</button>
+            <button onClick={() => set({ junkPages: 'hide' })}
+              className={`rounded-2xl border py-3 text-sm ${prefs.junkPages === 'hide' ? 'border-accent bg-accent-soft text-accent' : 'border-ink-700 text-fog-300'}`}>{tr('Hide')}</button>
           </div>
           <p className="mt-2 text-[11px] leading-snug text-fog-500">
-            {tr('Credit pages and adverts repeat in every chapter. Pages that do are skipped; the reader says so, and they stay in the page grid.')}
+            {tr('Credit pages and adverts repeat in every chapter. Collapse folds them down to a line you can scroll past or tap to open; hide takes them out of the chapter altogether.')}
           </p>
         </Row>
 

@@ -1,5 +1,16 @@
 export type ReaderTheme = 'amoled' | 'sepia' | 'gray';
 
+/**
+ * What the reader does with a page that repeats across chapters -- a credit page, an advert.
+ *
+ * `collapse` is the default and the interesting one: the page stays exactly where it is in the scroll but
+ * renders as a thin band of itself, so the chapter is never secretly shorter than it is and you can see what
+ * was set aside before you decide about it. `hide` is the old behaviour, kept for anyone who wants the page
+ * gone outright.
+ */
+export type JunkPages = 'show' | 'collapse' | 'hide';
+const JUNK_MODES: readonly JunkPages[] = ['show', 'collapse', 'hide'];
+
 export interface ReaderPrefs {
   gap: number; // px between pages (0 = seamless webtoon)
   brightness: number; // 0.25 .. 1
@@ -8,10 +19,16 @@ export interface ReaderPrefs {
   fitWidth: boolean;
   theme: ReaderTheme;
   spread: boolean; // paged mode: two pages side by side (manga double-page convention)
-  skipJunk: boolean; // skip pages that repeat across chapters -- credit pages, adverts
+  junkPages: JunkPages; // what to do with pages that repeat across chapters
+  /**
+   * @deprecated Superseded by `junkPages`, and kept ONLY so that an older build does not fight this one.
+   * Always derived in `normalise`, never read for behaviour. See the note there.
+   */
+  skipJunk: boolean;
 }
 
 export const DEFAULT_PREFS: ReaderPrefs = {
+  junkPages: 'collapse',
   skipJunk: true,
   gap: 0,
   brightness: 1,
@@ -31,10 +48,39 @@ const SYNC_DELAY = 1500;
 const SERIES_CAP = 300; // per-series memory is unbounded otherwise — a big library would bloat the settings row
 let syncTimer: ReturnType<typeof setTimeout> | null = null;
 
+/**
+ * Fill in what a stored object is missing, and reconcile the setting with the boolean it replaced.
+ *
+ * ⚠️ THE MIGRATION IS THE POINT, and plain `{ ...DEFAULT_PREFS, ...stored }` gets it wrong. Someone who
+ * deliberately turned skipping OFF has `{ skipJunk: false }` and no `junkPages` at all, so the spread would
+ * hand them the default and silently switch a feature back on that they had switched off. When `junkPages`
+ * is absent we read the old boolean instead.
+ * Reintroduce by deleting the `skipJunk === false` branch: a stored `{"skipJunk": false}` loads as
+ * `'collapse'` and starts collapsing pages for someone who asked it not to.
+ *
+ * ⚠️ AND `skipJunk` IS STILL WRITTEN, every time. `savePrefs` PUTs the whole `reader` object and the server
+ * merges it shallowly, so a second device on an older build would otherwise overwrite the settings row with
+ * an object that has no `junkPages` in it -- wiping the choice on every device. Writing both keys means the
+ * two builds degrade into each other instead of fighting over the row.
+ *
+ * Unrecognised values fall back to the default rather than being trusted, because nothing else here
+ * validates what came out of storage either.
+ */
+export function migratePrefs(raw: unknown): ReaderPrefs {
+  const r = (raw && typeof raw === 'object' ? raw : {}) as Partial<ReaderPrefs>;
+  // ⚠️ Ask the RAW object, not the merged one. The defaults supply a `junkPages`, so a check against the
+  // merged object can never fail and the branch below would never run.
+  const chosen = JUNK_MODES.includes(r.junkPages as JunkPages);
+  const p = { ...DEFAULT_PREFS, ...r };
+  if (!chosen) p.junkPages = r.skipJunk === false ? 'show' : DEFAULT_PREFS.junkPages;
+  p.skipJunk = p.junkPages !== 'show';
+  return p;
+}
+
 export function loadPrefs(): ReaderPrefs {
   if (typeof window === 'undefined') return DEFAULT_PREFS;
   try {
-    return { ...DEFAULT_PREFS, ...JSON.parse(localStorage.getItem(KEY) || '{}') };
+    return migratePrefs(JSON.parse(localStorage.getItem(KEY) || '{}'));
   } catch {
     return DEFAULT_PREFS;
   }
@@ -67,8 +113,9 @@ export async function syncPrefsFromServer(): Promise<ReaderPrefs> {
     const { api } = await import('./api');
     const s = await api<{ reader?: Partial<ReaderPrefs>; readerSeries?: Record<string, SeriesPrefs> }>('/api/settings');
     if (s?.reader && typeof s.reader === 'object') {
-      const merged = { ...loadPrefs(), ...s.reader };
-      localStorage.setItem(KEY, JSON.stringify(merged));
+      // Through the same reconciliation as a local read: a settings row written by an older build carries
+      // `skipJunk` and no `junkPages`, and must not land here as a raw object.
+      localStorage.setItem(KEY, JSON.stringify(migratePrefs({ ...loadPrefs(), ...s.reader })));
     }
     if (s?.readerSeries && typeof s.readerSeries === 'object') {
       for (const [id, sp] of Object.entries(s.readerSeries)) {

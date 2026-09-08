@@ -1,5 +1,45 @@
 # Changelog
 
+## v0.26.0 — 2026-09-08
+
+### A repeated page folds down instead of disappearing
+
+v0.25.0 removed the pages that are not the story — the credit page, the advert — from the chapter you were
+reading. That was the wrong shape, and reading with it for a day made the reason plain: a chapter was quietly
+shorter than it really was, a floating chip announced the fact at every chapter start whether you cared or
+not, and there was no way to see what was going to be removed before it went.
+
+Now the page stays exactly where it is, drawn as a thin band of itself with a label. You scroll past it in an
+instant, or tap it to open it in place and tap **collapse** to fold it away again. The band is a slice of the
+real page, so you can see it is the credit page rather than take our word for it — which is the part that was
+missing. The floating chip is gone: the notice sits where the page is, which is both harder to miss and
+impossible to mistake for a comment about something else.
+
+**Repeated pages** in reader settings now offers *Show all*, *Collapse* (the default) and *Hide*. *Hide* is
+the old behaviour for anyone who wants the page gone outright, chip and all. Reading page-by-page rather than
+scrolling, *Collapse* still removes — a slide is one whole page wide, so there is no room for a band, and in
+that mode an unwanted page costs a swipe rather than a scroll anyway.
+
+### Four bugs that removal had been causing
+
+Putting the page back in the list the reader counts with fixed a set of failures that all had the same root:
+while pages were being removed, a position in the chapter and a page number were two different things, and
+several places assumed they were the same.
+
+- **Resume and saved Moments landed late.** Opening a Moment saved on page 3 took you to page 4 — one page
+  further on for every repeated page earlier in the chapter. Silently, because arriving a page on is
+  indistinguishable from having read that far.
+- **The chapter divider vanished** when a chapter opened on a credit page, taking the "Up Next" heading with
+  it — and because the same marker keeps a chapter's first page unpaired, every double-page spread in that
+  chapter was shifted by one.
+- **Tapping a dimmed tile in the page grid** scrolled to the top of the entire library instead of to the page
+  you tapped.
+- **A chapter that was entirely furniture disappeared**, and continuous reading walked from the chapter
+  before it to the chapter after with nothing in between.
+
+The reading flow is now built in one place, `web/lib/readerFlow.ts`, where it can be tested — which is why
+these were reachable at all. Each has a test that fails when the old behaviour is put back.
+
 ## v0.25.2 — 2026-09-08
 
 ### Blank slices were being skipped as if they were the same page

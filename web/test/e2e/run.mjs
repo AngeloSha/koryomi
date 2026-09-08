@@ -787,16 +787,44 @@ try {
               const vp = tab.viewport();
               await tab.mouse.click(Math.round(vp.width / 2), Math.round(vp.height / 2));
               await sleep(900);
-              const seen = await tab.evaluate(() => ({
-                chip: (document.body.innerText || '').match(/skipped \d+ repeated page/i)?.[0] || null,
-                imgs: [...document.querySelectorAll('img')].filter((i) => i.naturalWidth > 0).length,
-              }));
-              // Both directions: the chip must SAY something was skipped, and the rest must still render.
-              // "Skipped everything" is the failure this feature must never have.
-              if (!seen.chip) bad('a chapter with a repeated credit page skipped nothing');
-              else if (!seen.imgs) bad('the chapter skipped pages and then rendered none of the rest');
+              // The notice is POSITIONAL now: the repeated page is still in the chapter, folded down to a
+              // band of itself where it always was. So the assertions are about that element existing, being
+              // thin, and the rest of the chapter still rendering -- three things a floating chip could
+              // never prove, since it sat at a fixed place on the screen whatever the flow did.
+              const seen = await tab.evaluate(() => {
+                const el = [...document.querySelectorAll('[aria-label]')]
+                  .find((x) => /show repeated page/i.test(x.getAttribute('aria-label') || ''));
+                return {
+                  strip: el ? el.getAttribute('aria-label') : null,
+                  stripH: el ? Math.round(el.getBoundingClientRect().height) : null,
+                  imgs: [...document.querySelectorAll('img')].filter((i) => i.naturalWidth > 0).length,
+                };
+              });
+              if (!seen.strip) bad('a chapter with a repeated credit page collapsed nothing');
+              else if (!(seen.stripH > 0 && seen.stripH < 120)) {
+                // The literal product claim: it is a LINE you scroll past, not a page. This fails the moment
+                // the collapsed height stops reaching the layout model.
+                bad(`the collapsed page is ${seen.stripH}px tall — that is not a strip`);
+              } else if (!seen.imgs) bad('the chapter collapsed a page and then rendered none of the rest');
               else {
-                ok(`repeated pages are skipped and said so ("${seen.chip}")`);
+                ok(`a repeated page is folded down in place (${seen.stripH}px, "${seen.strip}")`);
+
+                // ⚠️ Tapping it must open the page WITHOUT also toggling the reader chrome: the scroll
+                // container owns a tap gesture, and the strip has to stop that event or one tap does two
+                // things. Untestable anywhere but a browser.
+                await tab.evaluate(() => {
+                  const el = [...document.querySelectorAll('[aria-label]')]
+                    .find((x) => /show repeated page/i.test(x.getAttribute('aria-label') || ''));
+                  el?.click();
+                });
+                await sleep(2500);
+                const opened = await tab.evaluate(() => {
+                  const img = [...document.querySelectorAll('img')].find((i) => /page 1$/i.test(i.alt || ''));
+                  return { h: img ? Math.round(img.getBoundingClientRect().height) : 0, w: img?.naturalWidth ?? 0 };
+                });
+                opened.w > 0 && opened.h > 200
+                  ? ok(`tapping it opens the real page in place (${opened.h}px)`)
+                  : bad(`tapping the strip did not open the page (${opened.h}px, natural ${opened.w})`);
 
                 // ⚠️ The correction, from the page grid. The automatic rule is arithmetic over repeated
                 // images and it WILL be wrong sometimes, in both directions; this control is the entire
@@ -816,12 +844,41 @@ try {
                   el.click();
                   return el.getAttribute('aria-label');
                 });
+                // ⚠️ THE DRIFT. A deep link names a page NUMBER; the reader needs an index into the flow.
+                // Subtracting one is only right while the flow holds every page, so for as long as repeated
+                // pages were removed, every saved Moment and every resume landed one page late for each page
+                // removed before it -- silently, because landing a page on is indistinguishable from having
+                // read that far. This fails against the version that filtered the flow.
+                const deep = await browser.newPage();
+                await deep.setViewport({ width: 1440, height: 900 });
+                try {
+                  await deep.goto(`${BASE}/reader/?book=${book.id}&page=3`, { waitUntil: 'networkidle2', timeout: 60000 });
+                  await sleep(6000);
+                  const dv = deep.viewport();
+                  await deep.mouse.click(Math.round(dv.width / 2), Math.round(dv.height / 2));
+                  await sleep(900);
+                  const counter = await deep.evaluate(() => {
+                    const b = [...document.querySelectorAll('button')]
+                      .find((x) => /jump to a page/i.test(x.getAttribute('aria-label') || ''));
+                    return b ? (b.textContent || '').trim() : null;
+                  });
+                  counter === '3/4'
+                    ? ok('a deep link to page 3 opens page 3')
+                    : bad(`a deep link to page 3 opened "${counter}" — the page number drifted`);
+                } finally {
+                  await deep.close().catch(() => {});
+                }
+
                 if (!rescued) bad('the page grid offers no way to un-skip a page the rule got wrong');
                 else {
                   await sleep(3000);
-                  const still = await tab.evaluate(() =>
-                    (document.body.innerText || '').match(/skipped \d+ repeated page/i)?.[0] || null);
-                  if (still) bad(`un-skipping a page left it skipped ("${still}")`);
+                  // ⚠️ Asked of the GRID, which shows only the chapter being read. "Is there still a folded
+                  // page anywhere" is the wrong question: the reader appends the next chapter as you near the
+                  // end, and that one opens on the same credit page, so a strip is legitimately still on
+                  // screen. Scoping to this chapter's tile is what makes the assertion about the rescue.
+                  const still = await tab.evaluate(() => [...document.querySelectorAll('[aria-label]')]
+                    .some((x) => /open skipped page 1$/i.test(x.getAttribute('aria-label') || '')));
+                  if (still) bad('un-skipping a page left it marked as skipped');
                   else ok(`a page can be rescued by hand from the grid ("${rescued}")`);
                 }
               }

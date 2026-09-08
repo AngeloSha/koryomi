@@ -155,20 +155,25 @@ It remembers your scroll position, so closing and reopening drops you right back
 ### Skipping the pages that are not the story
 
 Most scanlated chapters open with the same credit page, and some carry an advert or a "read the rest at…"
-splash. Uchiyomi finds them and leaves them out of the flow.
+splash. Uchiyomi finds them and folds them down to a line you scroll straight past.
 
 How it decides is deliberately simple: a credit page is *the same image in every chapter of that series*, so
 a page that turns up in three or more chapters of one series is treated as furniture. Story pages are never
 the same picture twice. It only ever compares chapters within a single series.
 
-- Nothing is hidden quietly. A skipped page leaves a small **skipped 1 repeated page — show** chip that puts
-  it back for that chapter with one tap.
-- The **page grid** (tap the page counter) still lists every page, with skipped ones dimmed and labelled, so
-  the chapter you see is never secretly shorter than the chapter you have.
-- You can **mark a page as junk by hand**, or **rescue one** it got wrong, from that grid. Either decision is
-  permanent and beats the automatic rule in both directions — that is the escape hatch that makes skipping
-  safe to leave on.
-- Turn it off entirely with **Skip repeated pages** in the reader settings.
+- **Nothing disappears.** The page stays exactly where it is in the chapter, drawn as a thin band of itself
+  with a label — so you can see what was set aside, and the chapter is never secretly shorter than it is.
+- **Tap the band to open the page** in place, and tap **collapse** on it to fold it away again.
+- The **page grid** (tap the page counter) lists every page, with folded ones dimmed and labelled.
+- You can **mark a page as repeated by hand**, or **rescue one** it got wrong, from that grid. Either
+  decision is permanent and beats the automatic rule in both directions — that is the escape hatch that makes
+  this safe to leave on.
+- **Repeated pages** in the reader settings has three settings: *Show all* leaves everything alone, *Collapse*
+  is the default described above, and *Hide* takes the page out of the chapter altogether — in which case a
+  small chip tells you it happened and puts it back for that chapter with one tap.
+- Reading **page by page** rather than as a continuous scroll, there is no room for a band: a slide is one
+  whole page. There, *Collapse* removes the page like *Hide* does, which is the win in that mode anyway —
+  an unwanted page costs a swipe rather than a scroll.
 - If more than a third of a chapter is about to be skipped, nothing is. That happens when the same file is
   filed under several chapter numbers, so every page really does repeat — the arithmetic is right and the
   answer is useless. A page you marked by hand is never subject to that limit.

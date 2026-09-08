@@ -7,6 +7,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { useQuery } from '@tanstack/react-query';
 import { api, img } from '@/lib/api';
 import { chapterOutcome } from '@/lib/readerState';
+import { buildFlow, startIndex, renderWindow } from '@/lib/readerFlow';
 import { Book, Page, PageInfo, Series } from '@/lib/types';
 import { chapterLabel } from '@/lib/format';
 import { deviceId } from '@/lib/device';
@@ -29,6 +30,11 @@ interface FlatItem { ci: number; number: number; width: number | null; height: n
 const WINDOW_BEHIND = 2;
 const WINDOW_AHEAD = 6;
 const DIVIDER_H = 60;
+/**
+ * How tall a collapsed page is. Enough to read as a band OF SOMETHING -- you can see it is a credit page --
+ * without being tall enough to interrupt a scroll. A sibling of DIVIDER_H, and reserved the same way.
+ */
+const STRIP_H = 48;
 
 async function loadChapter(bookId: string): Promise<Chapter | null> {
   const off = await getOfflineChapter(bookId);
@@ -132,6 +138,7 @@ function ReaderInner() {
     setRefsFrom('none');
     completedSent.current.clear();
     prevPos.current = null;
+    setExpanded(new Set());   // a page opened by hand belongs to the chapter it was opened in
     blobUrls.current.forEach((u) => URL.revokeObjectURL(u));
     blobUrls.current.clear();
     (async () => {
@@ -206,48 +213,52 @@ function ReaderInner() {
   }, [bookId, reloadKey]);
 
   /**
-   * Pages the server says recur across chapters of this series -- a scanlator's credit page, an advert --
-   * that this reader is currently hiding. Kept per chapter id so "show them" applies to the chapter you are
-   * in and resets when you move on, rather than becoming a mode you forget you turned on.
+   * Repeated pages the reader has asked to see, keyed per PAGE (`chapterId:number`).
+   *
+   * ⚠️ ONE axis, not two. There used to be a separate per-chapter `revealed` set beside this, whose comment
+   * claimed it "resets when you move on" -- it did not: moving between chapters uses `router.replace`, so the
+   * component never unmounts and the set outlived the chapter it belonged to. Keying per page removes the
+   * question entirely, and this one IS cleared when the book changes, below.
    */
-  const [revealed, setRevealed] = useState<Set<string>>(new Set());
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
   // ---- every page of every loaded chapter, including the ones the flow skips ----
-  const flatAll: FlatItem[] = useMemo(() => {
-    const arr: FlatItem[] = [];
-    chapters.forEach((ch, ci) =>
-      ch.pages.forEach((p, pi) =>
-        arr.push({ ci, number: p.number, width: p.width, height: p.height, key: `${ch.id}:${p.number}`, firstOfChapter: pi === 0, junk: p.junk }),
-      ),
-    );
-    return arr;
-  }, [chapters]);
+  /**
+   * The reading flow: every page of every loaded chapter, in order.
+   *
+   * ⚠️ THERE IS NO SECOND LIST, and that is the point. This used to be a full `flatAll` plus a filtered
+   * `flat` that the reader indexed into, and the gap between them caused three bugs at once: resume and
+   * `?page=` deep links landed a page late for every page removed before them, `firstOfChapter` was computed
+   * on one list and read on the other so the chapter divider vanished when page 1 was furniture (re-phasing
+   * every spread in that chapter), and the page grid handed `jumpTo` a -1 that clamped to the top of the
+   * library. A repeated page is now a page that RENDERS differently, not one that is missing, so an index
+   * here and a page number mean the same thing again.
+   *
+   * `hide` still removes, for readers who want the page gone outright — but it goes through the same builder,
+   * so it gets the corrected `firstOfChapter` and the per-chapter empty guard too.
+   */
+  const flat: FlatItem[] = useMemo(
+    () => buildFlow(chapters, prefs.junkPages, expanded) as FlatItem[],
+    [chapters, prefs.junkPages, expanded],
+  );
+  /** Vertical + `collapse`: a repeated page is drawn as a band of itself instead of being removed. */
+  const collapsing = prefs.junkPages === 'collapse';
+  /** `hide` is the only mode that takes a page out of the flow, so it is the only one that needs the chip. */
+  const removing = prefs.junkPages === 'hide';
 
   /**
-   * The reading flow: every page except the furniture.
+   * How many pages the chapter being read is hiding right now, for the chip.
    *
-   * ⚠️ This, and not `flatAll`, is what the rest of the reader indexes into -- `current`, the scroll
-   * offsets, the prefetch window, progress, chapter boundaries. Skipping a page has to remove it from THIS
-   * list, because in vertical mode a page that is still in the list is still in the scroll; there is no
-   * "rendered but skipped". `flatAll` survives alongside it purely so the page grid can still show what was
-   * skipped. Reintroduce by pointing the grid at this list instead: a skipped page vanishes from the
-   * chapter entirely, which is the difference between skipping something and hiding it.
+   * ⚠️ Only in `hide`, where pages are genuinely absent. Where they collapse, the strip sits exactly where
+   * the page is and says so itself; a floating chip on top of that tells you something already on screen,
+   * which is the definition of noise. The chip is the notice of last resort, for the one mode with nowhere
+   * else to put one.
    */
-  const flat: FlatItem[] = useMemo(() => {
-    if (!prefs.skipJunk) return flatAll;
-    const out = flatAll.filter((p) => !p.junk || revealed.has(chapters[p.ci]?.id ?? ''));
-    // Never leave a chapter with nothing in it. If every page of a chapter were somehow flagged, showing
-    // the chapter as empty would look like a broken download; showing it unfiltered is honest.
-    return out.length ? out : flatAll;
-  }, [flatAll, prefs.skipJunk, revealed, chapters]);
-
-  /** How many pages the chapter being read is hiding right now, for the chip. */
   const hiddenHere = useMemo(() => {
-    const id = chapters[flat[current]?.ci ?? flatAll[0]?.ci ?? 0]?.id;
-    if (!prefs.skipJunk || !id || revealed.has(id)) return 0;
-    return flatAll.filter((p) => p.junk && chapters[p.ci]?.id === id).length;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [flatAll, flat, current, prefs.skipJunk, revealed, chapters]);
+    const ch = chapters[flat[current]?.ci ?? 0];
+    if (!removing || !ch) return 0;
+    return ch.pages.filter((p) => p.junk && !expanded.has(`${ch.id}:${p.number}`)).length;
+  }, [chapters, flat, current, removing, expanded]);
 
   // ---- paged slides: 1 page per slide, or double spreads ----
   // The rules, and why each exists, live in lib/readerSpread.ts, where they can be tested without mounting
@@ -280,8 +291,17 @@ function ReaderInner() {
   }, [zoom, colW]);
 
   // ---- reserved heights + cumulative tops (incl. chapter dividers) ----
+  // ⚠️ `expanded` and `collapsing` belong in the dependency list below, not just in the body. This memo is
+  // the reader's ENTIRE model of the layout -- `onScroll` binary-searches `tops` to decide what page you are
+  // on, and nothing ever measures the DOM to check. Leave them out and opening a page silently reports the
+  // wrong page from then on, with no symptom until the page counter disagrees with the screen.
+  // Reintroduce by dropping `expanded` from the deps: expand a strip, then scroll -- the counter is off by
+  // however much the page grew.
   const { heights, tops } = useMemo(() => {
-    const hs = flat.map((p) => (p.width && p.height ? colW * (p.height / p.width) : colW * 1.4));
+    const hs = flat.map((p) =>
+      collapsing && p.junk && !expanded.has(p.key)
+        ? STRIP_H
+        : p.width && p.height ? colW * (p.height / p.width) : colW * 1.4);
     const ts: number[] = [];
     let acc = 0;
     flat.forEach((p, i) => {
@@ -290,14 +310,17 @@ function ReaderInner() {
       acc += hs[i] + prefs.gap;
     });
     return { heights: hs, tops: ts };
-  }, [flat, colW, prefs.gap]);
+  }, [flat, colW, prefs.gap, collapsing, expanded]);
 
   // ---- active render window ----
-  const activeSet = useMemo(() => {
-    const s = new Set<number>();
-    for (let i = current - WINDOW_BEHIND; i <= current + WINDOW_AHEAD; i++) if (i >= 0 && i < flat.length) s.add(i);
-    return s;
-  }, [current, flat.length]);
+  // ⚠️ Memoised on `flat` itself, not `flat.length`. Expanding a page changes what is in the window without
+  // changing how many items there are, and the blob prefetch below keys off this set's identity -- on
+  // `flat.length` the set never changes, so an expanded page of a DOWNLOADED chapter would sit on its number
+  // placeholder forever. Invisible online, where the image URL always works.
+  const activeSet = useMemo(
+    () => renderWindow(flat, current, WINDOW_BEHIND, WINDOW_AHEAD),
+    [flat, current],
+  );
 
   // ---- offline blob URLs within window ----
   const [, force] = useState(0);
@@ -334,10 +357,29 @@ function ReaderInner() {
     return img.page(ch.id, it.number);
   };
 
+  /**
+   * The image behind a COLLAPSED page: the same picture, at thumbnail size.
+   *
+   * ⚠️ Deliberately not `srcFor`. A collapsed page is 48px tall and nobody is reading it, so pulling the
+   * full-size scan for it would spend a webtoon-sized download on a band of a credit page -- once per
+   * chapter, forever. 200px is the width the page grid and the scrubber preview already ask for, so this
+   * usually costs nothing at all beyond what those already cached.
+   */
+  const stripSrc = (i: number): string | null => {
+    const it = flat[i];
+    const ch = chapters[it.ci];
+    if (!ch) return null;
+    if (ch.offline) return blobUrls.current.get(it.key) || null;   // already decoded in memory; no network
+    return img.page(ch.id, it.number, 200);
+  };
+
   // ---- initial scroll to resume page ----
   useEffect(() => {
     if (!ready || didInitScroll.current || !colW || !tops.length) return;
-    const idx = Math.max(0, Math.min(flat.length - 1, startPage - 1));
+    // ⚠️ A page NUMBER, resolved -- never `startPage - 1`. Subtracting one is an index into a list that holds
+    // every page, which stopped being true the moment `hide` could remove one, and the drift is silent: you
+    // resume a little past where you left off, by exactly the number of pages removed before you.
+    const idx = Math.max(0, Math.min(flat.length - 1, startIndex(flat, 0, startPage)));
     if (prefs.mode === 'vertical' && scrollRef.current && idx > 0) scrollRef.current.scrollTop = tops[idx];
     if (prefs.mode === 'paged' && scrollRef.current && idx > 0)
       scrollRef.current.scrollLeft = (slideOf[idx] ?? idx) * scrollRef.current.clientWidth;
@@ -502,35 +544,36 @@ function ReaderInner() {
       ...c, pages: c.pages.map((p) => (p.number === pageNumber ? { ...p, junk: v } : p)),
     })));
     apply(junk);
-    // Un-marking has to reveal the chapter too, or the page stays out of the flow until the next reload:
-    // `flat` filters on the flag, and a page the reader just rescued should be reachable immediately.
-    if (!junk) setRevealed((prev) => new Set(prev).add(ch.id));
+    // Nothing to reveal: the flow is rebuilt from the flag, so clearing it draws the page at full height on
+    // the next render. In `hide` the page is put back the same way, by asking for it explicitly.
+    if (!junk) setExpanded((prev) => new Set(prev).add(`${ch.id}:${pageNumber}`));
     api(`/api/books/${ch.id}/pages/${pageNumber}/junk`, { method: 'PUT', json: { junk } })
       .then(() => setOfflinePageJunk(ch.id, pageNumber, junk))
       .catch(() => apply(!junk));
   }, [chapters, flat, current]);
 
-  // Thumbnails for the chapter being read, and nothing else -- see PageGrid for why.
+  /**
+   * Thumbnails for the chapter being read, and nothing else -- see PageGrid for why.
+   *
+   * ⚠️ Built from the CHAPTER, so every tile exists whatever the mode, and its jump target is resolved by
+   * page number. It used to look each page up in the reading flow, which returned -1 for anything removed --
+   * and `jumpTo` clamps -1 to 0, so tapping a dimmed tile scrolled to the top of the whole library. The
+   * comment here used to claim it revealed the chapter instead; nothing ever did that.
+   */
   const gridPages = useMemo(() => {
     const ci = flat[current]?.ci;
     if (ci == null) return [];
-    return flatAll
-      .map((it) => ({ it, idx: flat.findIndex((f) => f.key === it.key) }))
-      .filter(({ it }) => it.ci === ci)
-      .map(({ it, idx }) => {
-        const ch = chapters[it.ci];
-        return {
-          // -1 when this page is currently skipped: the grid still draws it, dimmed, and tapping it
-          // reveals the chapter rather than jumping nowhere.
-          idx,
-          junk: !!it.junk,
-          number: it.number,
-          // An offline chapter has no URL to request: its pages are blobs already decoded into memory, and
-          // the same blob is the thumbnail.
-          src: ch ? (ch.offline ? blobUrls.current.get(it.key) || null : img.page(ch.id, it.number, 200)) : null,
-        };
-      });
-  }, [flatAll, flat, current, chapters]);
+    const ch = chapters[ci];
+    if (!ch) return [];
+    return ch.pages.map((p) => ({
+      idx: startIndex(flat, ci, p.number),
+      junk: !!p.junk,
+      number: p.number,
+      // An offline chapter has no URL to request: its pages are blobs already decoded into memory, and
+      // the same blob is the thumbnail.
+      src: ch.offline ? blobUrls.current.get(`${ch.id}:${p.number}`) || null : img.page(ch.id, p.number, 200),
+    }));
+  }, [flat, current, chapters]);
   const activeIdx = chapterRefs.findIndex((c) => c.id === activeChapter?.id);
   const prevId = activeIdx > 0 ? chapterRefs[activeIdx - 1]?.id : undefined;
   const nextId = activeIdx >= 0 && activeIdx < chapterRefs.length - 1 ? chapterRefs[activeIdx + 1]?.id : undefined;
@@ -771,12 +814,17 @@ function ReaderInner() {
       <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 h-36" style={{ background: 'linear-gradient(to top, rgb(var(--cover, 0 0 0) / 0.16), transparent)' }} />
 
       {/* PAGES */}
+      {/* ⚠️ overflow-anchor is off below because `tops` -- computed in JS and never measured back from the
+          DOM -- is the only model of the layout there is. A browser that quietly adjusts scrollTop to keep
+          content in view desynchronises it from `current` with no symptom and no way to detect it. */}
       {prefs.mode === 'vertical' ? (
-        <div ref={scrollRef} data-lenis-prevent onScroll={onScroll} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerEnd} onPointerCancel={onPointerEnd}
+        <div ref={scrollRef} data-lenis-prevent style={{ overflowAnchor: 'none' }} onScroll={onScroll} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerEnd} onPointerCancel={onPointerEnd}
           className={`h-screen-d touch-pan-y overflow-y-auto overscroll-contain ${zoom > 1 ? 'overflow-x-auto' : 'overflow-x-hidden'}`}>
           <div className="mx-auto" style={{ width: colW || '100%', filter: THEME_FILTER[prefs.theme] }}>
             <div className="h-2" />
-            {flat.map((p, i) => (
+            {flat.map((p, i) => {
+              const collapsed = collapsing && p.junk && !expanded.has(p.key);
+              return (
               <div key={p.key}>
                 {p.firstOfChapter && p.ci > 0 && (
                   <div style={{ height: DIVIDER_H }} className="flex items-center justify-center gap-3 text-xs text-fog-500">
@@ -787,14 +835,58 @@ function ReaderInner() {
                   </div>
                 )}
                 <div style={{ height: heights[i] || undefined, marginBottom: prefs.gap }} className="relative w-full bg-ink-900">
-                  {activeSet.has(i) && srcFor(i) ? (
+                  {collapsed ? (
+                    /* A band of the real page, not a placeholder standing in for it. Seeing that it IS the
+                       credit page is the whole difference between "the reader set this aside" and "a page is
+                       missing" -- and it costs nothing extra, because the box below already crops with
+                       object-cover; only the height changed. `object-top` because the top of a credit page is
+                       the part that identifies it. The THUMBNAIL is used deliberately: a page nobody is
+                       reading must never pull a full-size scan down. */
+                    <button
+                      type="button"
+                      aria-expanded={false}
+                      onClick={() => setExpanded((prev) => new Set(prev).add(p.key))}
+                      /* ⚠️ BOTH, and neither is optional. The scroll container owns a tap gesture that
+                         toggles the chrome and a double-tap that zooms; it seeds that gesture on pointerdown
+                         and reads it on pointerup. Stop only one and a tap on a strip still expands the page
+                         AND toggles the chrome, and a double-tap expands then zooms. */
+                      onPointerDown={(e) => e.stopPropagation()}
+                      onPointerUp={(e) => e.stopPropagation()}
+                      aria-label={tr('Show repeated page {n}', { n: p.number })}
+                      className="group block h-full w-full overflow-hidden text-start"
+                    >
+                      {stripSrc(i) && (
+                        <img src={stripSrc(i)!} alt="" aria-hidden className="absolute inset-0 h-full w-full object-cover object-top opacity-50" />
+                      )}
+                      <span className="absolute inset-0 flex items-center justify-center gap-2.5 bg-ink-950/45 text-[10px] font-semibold uppercase tracking-[0.16em] text-fog-400 group-hover:text-fog-200">
+                        <span className="h-px w-6 bg-ink-600" />
+                        {tr('repeated page — tap to show')}
+                        <span className="h-px w-6 bg-ink-600" />
+                      </span>
+                    </button>
+                  ) : activeSet.has(i) && srcFor(i) ? (
                     <ReaderImg src={srcFor(i)!} alt={`Page ${p.number}`} className="block h-full w-full object-cover" />
                   ) : (
                     <div className="flex h-full w-full items-center justify-center text-xs text-ink-600">{p.number}</div>
                   )}
+                  {/* Opened by hand, so it can be closed by hand -- otherwise expanding one to check it is a
+                      one-way door for the rest of the session. */}
+                  {collapsing && p.junk && expanded.has(p.key) && (
+                    <button
+                      type="button"
+                      aria-expanded
+                      onClick={() => setExpanded((prev) => { const n = new Set(prev); n.delete(p.key); return n; })}
+                      onPointerDown={(e) => e.stopPropagation()}
+                      onPointerUp={(e) => e.stopPropagation()}
+                      aria-label={tr('Collapse repeated page {n}', { n: p.number })}
+                      className="absolute end-2 top-2 rounded-full bg-ink-950/75 px-2 py-1 text-[10px] font-medium text-fog-300 backdrop-blur hover:text-white"
+                    >
+                      {tr('collapse')}
+                    </button>
+                  )}
                 </div>
               </div>
-            ))}
+            );})}
             {ended && upNextCard}
             {failed && !!flat.length && failureCard}
           </div>
@@ -935,8 +1027,13 @@ function ReaderInner() {
           <motion.button
             initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 8 }}
             onClick={() => {
-              const id = chapters[flat[current]?.ci ?? 0]?.id;
-              if (id) setRevealed((prev) => new Set(prev).add(id));
+              const ch = chapters[flat[current]?.ci ?? 0];
+              if (!ch) return;
+              setExpanded((prev) => {
+                const n = new Set(prev);
+                ch.pages.forEach((p) => { if (p.junk) n.add(`${ch.id}:${p.number}`); });
+                return n;
+              });
             }}
             className="fixed inset-x-0 bottom-24 z-30 mx-auto w-fit rounded-full bg-black/70 px-3 py-1.5 text-[11px] text-fog-300 backdrop-blur">
             {hiddenHere === 1
