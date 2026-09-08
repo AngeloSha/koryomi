@@ -141,9 +141,25 @@ export async function isDownloaded(bookId: string): Promise<boolean> {
  *
  * One index read for a whole grid, rather than `isDownloaded()` per tile -- a library page renders hundreds
  * of cards, and that would be hundreds of IndexedDB round trips to answer one boolean each.
+ *
+ * ⚠️ The cache lives HERE, beside the writes that invalidate it, and not in the hook that reads it. It was
+ * in the hook first, with an exported invalidator that nothing ever called -- so the badge set was cached
+ * for the life of the tab and went stale the moment you downloaded or deleted anything. Putting it next to
+ * `downloadChapter` and `deleteDownload` is what makes forgetting to invalidate it hard: the cache and the
+ * only two things that can falsify it are now in the same file, a few lines apart. (The hook cannot own
+ * this and also be called from here -- it imports this module, so the dependency only goes one way.)
  */
+let seriesIdCache: Set<string> | null = null;
+
 export async function downloadedSeriesIds(): Promise<Set<string>> {
-  return new Set((await listDownloads()).map((c) => c.seriesId));
+  if (seriesIdCache) return seriesIdCache;
+  seriesIdCache = new Set((await listDownloads()).map((c) => c.seriesId));
+  return seriesIdCache;
+}
+
+/** Called by every write below. Reintroduce by dropping a call: the badges lie until the tab is reloaded. */
+export function invalidateDownloadedSeries(): void {
+  seriesIdCache = null;
 }
 
 export async function listDownloads(): Promise<OfflineChapter[]> {
@@ -251,6 +267,7 @@ export async function downloadChapter(
     pages: manifest.pages.map((p) => ({ number: p.number, width: p.width, height: p.height })),
   };
   await d.put('chapters', meta);
+  invalidateDownloadedSeries();
   await api('/api/downloads', {
     json: { bookId, seriesId: manifest.seriesId, deviceId: dev, status: 'complete', pageCount: manifest.pageCount, bytes: manifest.totalBytes },
   }).catch(() => {});
@@ -264,6 +281,7 @@ export async function deleteDownload(bookId: string): Promise<void> {
     for (const p of meta.pages) await d.delete('pages', pageKey(bookId, p.number));
   }
   await d.delete('chapters', chapterKey(bookId));
+  invalidateDownloadedSeries();
   api(`/api/downloads/${bookId}?deviceId=${deviceId()}`, { method: 'DELETE' }).catch(() => {});
 }
 

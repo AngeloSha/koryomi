@@ -64,8 +64,6 @@ file itself has to be on the server.
 the container, reads your library from *Downloads/manga*, and includes the Cloudflare solver; the Mihon
 extension engine is not part of it.
 
-What you end up running:
-
 ## What each container is for
 
 | Container | Role |
