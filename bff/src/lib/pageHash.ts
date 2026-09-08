@@ -37,20 +37,32 @@ export async function pageHash(input: Buffer): Promise<string | null> {
       .raw()
       .toBuffer({ resolveWithObject: true });
 
-    // ⚠️ A page with no variation carries no identity. A pure-white or pure-black page -- a blank leaf, a
-    // separator, a scan that failed to a flat colour -- has every neighbour equal, so every one of the 64
-    // comparisons is false and the hash is all zeros. EVERY flat page produces that same hash regardless of
-    // its colour, so they would all match each other and get flagged together. Refusing to hash them is the
-    // fix: an unhashed page is never skipped.
-    // Reintroduce by deleting this check: seed a series with three differently-coloured blank pages and all
-    // three are flagged as the same repeated page.
-    let min = 255;
-    let max = 0;
-    for (let i = 0; i < data.length; i++) {
-      if (data[i] < min) min = data[i];
-      if (data[i] > max) max = data[i];
+    // ⚠️ A page with no HORIZONTAL variation carries no identity, and the emphasis is the whole point.
+    //
+    // Every one of the 64 comparisons below asks whether a pixel is brighter than the one to its RIGHT. So the
+    // only variation that can produce a bit is variation ACROSS a row. This check used to measure the global
+    // min/max of the whole thumbnail, which sounds equivalent and is not: a long-strip slice that fades from
+    // black at the top to white at the bottom has a global range of 255 -- clearing a "range >= 8" test by a
+    // factor of thirty -- while every left-to-right pair is identical. All 64 comparisons tie, the hash is all
+    // zeros, and every such slice in the library collides with every other.
+    //
+    // That was not hypothetical: it shipped in v0.25.0 and the all-zero hash alone was skipping 100 pages of a
+    // real library, in 800x1280 webtoon slices whose global range was the maximum possible 255.
+    //
+    // Reintroduce by measuring the global range instead of the per-row range: two DIFFERENT vertical-fade
+    // slices then hash identically instead of being refused.
+    let widest = 0;
+    for (let row = 0; row < 8; row++) {
+      let min = 255;
+      let max = 0;
+      for (let col = 0; col < 9; col++) {
+        const v = data[row * 9 + col];
+        if (v < min) min = v;
+        if (v > max) max = v;
+      }
+      if (max - min > widest) widest = max - min;
     }
-    if (max - min < 8) return null;
+    if (widest < 8) return null;
 
     let bits = '';
     for (let row = 0; row < 8; row++) {
@@ -82,6 +94,42 @@ export async function pageHash(input: Buffer): Promise<string | null> {
  */
 export const MIN_CHAPTERS = 3;
 
+/**
+ * How many of the 64 comparisons must have found a difference before a hash is allowed to prove two pages are
+ * the same. EIGHT.
+ *
+ * ⚠️ This is the same idea as the guard inside `pageHash`, applied at the other end, and it is here because
+ * fixing the guard is not enough on its own. Hashes already written to the database were produced by the OLD
+ * guard and are not recomputed -- the backfill only visits chapters it has never seen -- so without this, the
+ * degenerate rows keep matching each other for as long as those chapters exist.
+ *
+ * A hash with k bits set is one where only k of 64 comparisons found any difference; the rest were ties. At
+ * k = 0 the hash is literally information-free and cannot identify anything, yet it is shared by every
+ * horizontally-uniform page in the library -- measured on a real library, that single value was flagging 100
+ * pages. Below 8 the picture is the same in weaker form: near-blank slices that carry too little structure to
+ * tell each other apart. Both ends, because a hash of all ones is the same failure photographed in negative.
+ *
+ * The cost is real and accepted: some genuinely repeated near-blank separators stop being skipped. They are
+ * blank slices, so the reader sees an extra sliver of nothing rather than a missing panel -- and that is the
+ * direction this feature is supposed to be wrong in.
+ *
+ * Reintroduce by dropping the `carriesIdentity` filter in `junkHashes`: three different vertical-fade slices,
+ * which share the all-zero hash, are again treated as the same page repeated three times.
+ */
+export const MIN_BITS = 8;
+
+/** Whether a hash says enough about a page to be evidence that two pages are the same one. */
+export function carriesIdentity(hash: string | null | undefined): boolean {
+  if (!hash) return false;
+  let bits = 0;
+  for (let i = 0; i < hash.length; i++) {
+    let n = parseInt(hash[i], 16);
+    if (Number.isNaN(n)) return false;
+    while (n) { bits += n & 1; n >>>= 1; }
+  }
+  return bits >= MIN_BITS && bits <= 64 - MIN_BITS;
+}
+
 export interface PageRef { bookId: string; page: number; hash: string }
 
 /**
@@ -99,7 +147,7 @@ export interface PageRef { bookId: string; page: number; hash: string }
 export function junkHashes(pages: PageRef[], minChapters = MIN_CHAPTERS): Set<string> {
   const chaptersByHash = new Map<string, Set<string>>();
   for (const p of pages) {
-    if (!p.hash) continue;
+    if (!carriesIdentity(p.hash)) continue;   // too little structure to prove two pages are the same one
     let seen = chaptersByHash.get(p.hash);
     if (!seen) chaptersByHash.set(p.hash, (seen = new Set()));
     seen.add(p.bookId);

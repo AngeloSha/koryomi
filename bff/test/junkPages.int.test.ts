@@ -19,7 +19,7 @@ if (DSN) {
 }
 const skip = DSN ? false : 'set TEST_DATABASE_URL to run';
 
-const CREDIT = 'aaaaaaaaaaaaaaaa';
+const CREDIT = 'c0dec0de5a5a3c3c';   // a real 16-hex-char fingerprint, as the app produces
 const SERIES = 's_junk_test';
 
 let q: typeof import('../src/lib/db').q;
@@ -60,7 +60,7 @@ beforeEach(async () => {
       `INSERT INTO page_hashes (book_id, page, hash)
        VALUES ($1, 1, $2), ($1, 2, $3), ($1, 3, $4), ($1, 4, $5)
        ON CONFLICT (book_id, page) DO UPDATE SET hash = EXCLUDED.hash, override = NULL`,
-      [`b_junk${c}`, CREDIT, `story${c}0000000001`, `story${c}0000000002`, `story${c}0000000003`],
+      [`b_junk${c}`, CREDIT, `a1b2c3d4e5f6000${c}`, `b2c3d4e5f6a7100${c}`, `c3d4e5f6a7b8200${c}`],
     );
   }
   ({ junkPagesFor, setPageOverride } = await import('../src/lib/junkPages'));
@@ -99,7 +99,7 @@ test('a chapter the rule wants to gut is left alone', { skip }, async () => {
     await q(
       `INSERT INTO page_hashes (book_id, page, hash) VALUES ($1,1,$2),($1,2,$3),($1,3,$4),($1,4,$5)
        ON CONFLICT (book_id, page) DO UPDATE SET hash = EXCLUDED.hash, override = NULL`,
-      [`b_junk${c}`, CREDIT, 'dupe000000000002', 'dupe000000000003', 'dupe000000000004'],
+      [`b_junk${c}`, CREDIT, 'd4e5f6a7b8c93012', 'e5f6a7b8c9da4023', 'f6a7b8c9daeb5034'],
     );
   }
   assert.deepEqual([...await junkPagesFor('b_junk1')], [],
@@ -113,7 +113,7 @@ test('the cap never overrules a person', { skip }, async () => {
     await q(
       `INSERT INTO page_hashes (book_id, page, hash) VALUES ($1,1,$2),($1,2,$3),($1,3,$4),($1,4,$5)
        ON CONFLICT (book_id, page) DO UPDATE SET hash = EXCLUDED.hash, override = NULL`,
-      [`b_junk${c}`, CREDIT, 'dupe000000000002', 'dupe000000000003', 'dupe000000000004'],
+      [`b_junk${c}`, CREDIT, 'd4e5f6a7b8c93012', 'e5f6a7b8c9da4023', 'f6a7b8c9daeb5034'],
     );
   }
   await setPageOverride('b_junk1', 3, true);

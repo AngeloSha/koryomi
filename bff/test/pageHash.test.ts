@@ -6,7 +6,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import sharp from 'sharp';
-import { pageHash, junkHashes, MIN_CHAPTERS } from '../src/lib/pageHash';
+import { pageHash, junkHashes, carriesIdentity, MIN_CHAPTERS, MIN_BITS } from '../src/lib/pageHash';
 
 /**
  * A deterministic test page: a soft gradient with a few solid blocks on it.
@@ -118,15 +118,15 @@ test('the same page twice in ONE chapter is not evidence', () => {
 
 test('a story page is never flagged', () => {
   const pages = [
-    { bookId: 'c1', page: 1, hash: 'credit0000000000' },
-    { bookId: 'c1', page: 2, hash: 'story00000000001' },
-    { bookId: 'c2', page: 1, hash: 'credit0000000000' },
-    { bookId: 'c2', page: 2, hash: 'story00000000002' },
-    { bookId: 'c3', page: 1, hash: 'credit0000000000' },
-    { bookId: 'c3', page: 2, hash: 'story00000000003' },
+    { bookId: 'c1', page: 1, hash: 'c0dec0de5a5a3c3c' },
+    { bookId: 'c1', page: 2, hash: 'a1b2c3d4e5f60789' },
+    { bookId: 'c2', page: 1, hash: 'c0dec0de5a5a3c3c' },
+    { bookId: 'c2', page: 2, hash: 'b2c3d4e5f6a71234' },
+    { bookId: 'c3', page: 1, hash: 'c0dec0de5a5a3c3c' },
+    { bookId: 'c3', page: 2, hash: 'c3d4e5f6a7b85678' },
   ];
   const junk = junkHashes(pages);
-  assert.deepEqual([...junk], ['credit0000000000']);
+  assert.deepEqual([...junk], ['c0dec0de5a5a3c3c']);
   for (const p of pages.filter((x) => x.hash.startsWith('story'))) {
     assert.ok(!junk.has(p.hash), `${p.hash} is a story page and must never be flagged`);
   }
@@ -155,6 +155,9 @@ test('pages that never hashed are ignored rather than grouped', () => {
     { bookId: 'c3', page: 1, hash: '' },
   ] as any);
   assert.equal(out.size, 0, 'empty hashes must not all group together into one huge false match');
+  // ⚠️ The fixtures in this file are REAL 16-hex-char values on purpose. An earlier version used readable
+  // stand-ins like 'credit0000000000', which are not hex at all -- so once the hash had to be parsed to be
+  // judged, those tests were exercising a value the app could never produce.
 });
 
 test('a blank page is not hashed at all', async () => {
@@ -172,3 +175,65 @@ test('a blank page is not hashed at all', async () => {
   assert.ok(await pageHash(await png(1)), 'a page with content must still hash');
 });
 
+
+/**
+ * A long-strip slice that fades top to bottom and is uniform left to right.
+ *
+ * ⚠️ This is the real shape that defeated the first guard, not an invented edge case: 800x1280 webtoon slices
+ * whose GLOBAL brightness range is the maximum possible 255, and whose every horizontal neighbour is identical.
+ */
+async function verticalFade(from: number, to: number, w = 200, h = 400): Promise<Buffer> {
+  const px = Buffer.alloc(w * h * 3);
+  for (let y = 0; y < h; y++) {
+    const v = Math.round(from + ((to - from) * y) / (h - 1));
+    for (let x = 0; x < w; x++) {
+      const i = (y * w + x) * 3;
+      px[i] = v; px[i + 1] = v; px[i + 2] = v;
+    }
+  }
+  return sharp(px, { raw: { width: w, height: h, channels: 3 } }).png().toBuffer();
+}
+
+test('a page with no LEFT-TO-RIGHT variation is not hashed, however bright top to bottom', async () => {
+  // ⚠️ The bug this pins shipped in v0.25.0 and was skipping 100 pages of a real library. The old guard asked
+  // for the global min/max range of the thumbnail, which these pages pass at the maximum possible value of
+  // 255 -- while every comparison the hash actually makes is a tie, so both hash to all zeros and collide.
+  // Reintroduce by measuring the global range instead of the per-row range in pageHash.
+  const a = await verticalFade(0, 255);
+  const b = await verticalFade(255, 0);   // a DIFFERENT image: the same fade upside down
+  assert.equal(await pageHash(a), null, 'a vertical-only fade must not hash');
+  assert.equal(await pageHash(b), null, 'nor its opposite');
+  // and a page with real horizontal structure still does
+  assert.ok(await pageHash(await png(3)), 'a page with content must still hash');
+});
+
+test('a hash carries identity only when enough comparisons found a difference', () => {
+  assert.equal(carriesIdentity('0000000000000000'), false, 'no bits set says nothing about a page');
+  assert.equal(carriesIdentity('ffffffffffffffff'), false, 'nor does the same failure in negative');
+  assert.equal(carriesIdentity('0100000000000000'), false, 'one bit is not identity');
+  assert.equal(carriesIdentity(null), false);
+  assert.equal(carriesIdentity(''), false);
+  assert.equal(carriesIdentity('d8c5a0a265a69d6d'), true, 'a real page hash is evidence');
+  assert.equal(MIN_BITS, 8);
+});
+
+test('pages sharing an information-free hash are not treated as the same page', () => {
+  // ⚠️ The half of the fix that works without re-reading anything. Hashes already stored were written by the
+  // old guard and the backfill never revisits a chapter it has seen, so the gate has to be applied where the
+  // matching happens too. On the real library the all-zero hash alone was flagging 100 pages this way.
+  // Reintroduce by dropping the carriesIdentity filter in junkHashes.
+  const flat = '0000000000000000';
+  assert.equal(junkHashes([
+    { bookId: 'c1', page: 1, hash: flat },
+    { bookId: 'c2', page: 1, hash: flat },
+    { bookId: 'c3', page: 1, hash: flat },
+  ]).size, 0, 'three different blank slices are not one repeated page');
+
+  // and a real credit page in the same series is still found
+  const credit = 'd8c5a0a265a69d6d';
+  assert.deepEqual([...junkHashes([
+    { bookId: 'c1', page: 1, hash: credit }, { bookId: 'c1', page: 2, hash: flat },
+    { bookId: 'c2', page: 1, hash: credit }, { bookId: 'c2', page: 2, hash: flat },
+    { bookId: 'c3', page: 1, hash: credit }, { bookId: 'c3', page: 2, hash: flat },
+  ])], [credit], 'the gate must not cost us the page we are actually after');
+});

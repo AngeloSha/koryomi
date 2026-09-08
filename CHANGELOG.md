@@ -1,5 +1,32 @@
 # Changelog
 
+## v0.25.2 — 2026-09-08
+
+### Blank slices were being skipped as if they were the same page
+
+The fingerprint asks, sixty-four times, whether a pixel is brighter than the one to its **right**. So the only
+variation it can see is variation across a row. The guard meant to refuse featureless pages measured something
+subtly different — the brightest and darkest pixel anywhere in the page.
+
+Those come apart on exactly the kind of page a long-strip webtoon is full of. A slice that fades from black at
+the top to white at the bottom has the widest possible range, 255, and sails through a guard asking for 8 — while
+every left-to-right comparison on it is a tie. All sixty-four answers come back "no", the fingerprint is all
+zeros, and *every* such slice in the library carries that same fingerprint. They were being matched to each other
+and skipped.
+
+This was not theoretical. On a real 42,000-chapter library the all-zero fingerprint alone was hiding 100 pages,
+and in one series 59 of the 166 skipped pages were this. The guard now measures what the fingerprint actually
+reads, and a page with no left-to-right variation is refused, as was always intended.
+
+Fixing the guard is not enough by itself, because fingerprints already recorded were written by the old one and
+the background job never revisits a chapter it has seen. So the same rule is applied where the matching happens:
+a fingerprint in which almost every comparison was a tie is no longer accepted as evidence that two pages are the
+same page. That takes effect immediately, without re-reading anything.
+
+Some genuinely repeated near-blank separators stop being skipped as a result. They are blank slices, so this
+shows up as a sliver of nothing rather than a missing panel — and fewer skips is the direction this feature is
+meant to be wrong in.
+
 ## v0.25.1 — 2026-09-08
 
 ### The page-hash job could never finish
