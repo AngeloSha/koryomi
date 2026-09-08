@@ -37,6 +37,21 @@ export async function pageHash(input: Buffer): Promise<string | null> {
       .raw()
       .toBuffer({ resolveWithObject: true });
 
+    // ⚠️ A page with no variation carries no identity. A pure-white or pure-black page -- a blank leaf, a
+    // separator, a scan that failed to a flat colour -- has every neighbour equal, so every one of the 64
+    // comparisons is false and the hash is all zeros. EVERY flat page produces that same hash regardless of
+    // its colour, so they would all match each other and get flagged together. Refusing to hash them is the
+    // fix: an unhashed page is never skipped.
+    // Reintroduce by deleting this check: seed a series with three differently-coloured blank pages and all
+    // three are flagged as the same repeated page.
+    let min = 255;
+    let max = 0;
+    for (let i = 0; i < data.length; i++) {
+      if (data[i] < min) min = data[i];
+      if (data[i] > max) max = data[i];
+    }
+    if (max - min < 8) return null;
+
     let bits = '';
     for (let row = 0; row < 8; row++) {
       for (let col = 0; col < 8; col++) {

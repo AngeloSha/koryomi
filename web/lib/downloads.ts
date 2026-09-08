@@ -49,7 +49,8 @@ export interface OfflineChapter {
   lastPage?: number;
   lastPageAt?: number;
   lastCompleted?: boolean;
-  pages: { number: number; width: number | null; height: number | null }[];
+  /** `junk` is captured at download time so an offline chapter skips exactly what the online one does. */
+  pages: { number: number; width: number | null; height: number | null; junk?: boolean }[];
 }
 
 /**
@@ -192,6 +193,29 @@ export async function noteOfflineProgress(bookId: string, page: number, complete
 }
 
 /**
+ * Carry a by-hand skip decision into the downloaded copy of a chapter.
+ *
+ * ⚠️ Without this the correction appears to work and then silently undoes itself. `loadChapter` consults the
+ * offline record BEFORE the server, so for a downloaded chapter the stored `junk` flag is what the reader
+ * actually reads -- the server would have the decision and never be asked. The page grid is the one place a
+ * person states an intent about a page, so it has to reach both copies.
+ *
+ * No VERSION bump: `junk` is just another field on a schemaless record, exactly like `lastPage` above.
+ */
+export async function setOfflinePageJunk(bookId: string, pageNumber: number, junk: boolean): Promise<void> {
+  try {
+    const d = await db();
+    const key = chapterKey(bookId);
+    const rec = (await d.get('chapters', key)) as OfflineChapter | undefined;
+    if (!rec) return;   // not downloaded: the server copy is the only one, and it is already updated
+    await d.put('chapters', {
+      ...rec,
+      pages: rec.pages.map((p) => (p.number === pageNumber ? { ...p, junk } : p)),
+    });
+  } catch { /* the server still has the decision; this is the local mirror */ }
+}
+
+/**
  * The chapters of one series that are actually on this device, in reading order.
  *
  * This is what lets the reader move between chapters offline. `number` is a string off the manifest, so the
@@ -264,7 +288,7 @@ export async function downloadChapter(
     readingDirection: manifest.readingDirection,
     totalBytes: manifest.totalBytes,
     savedAt: Date.now(),
-    pages: manifest.pages.map((p) => ({ number: p.number, width: p.width, height: p.height })),
+    pages: manifest.pages.map((p) => ({ number: p.number, width: p.width, height: p.height, junk: p.junk })),
   };
   await d.put('chapters', meta);
   invalidateDownloadedSeries();

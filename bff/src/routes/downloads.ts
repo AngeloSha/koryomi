@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify';
+import { junkPagesFor } from '../lib/junkPages';
 import { z } from 'zod';
 import { q } from '../lib/db';
 import { content } from '../lib/backend';
@@ -40,6 +41,12 @@ export default async function downloadRoutes(app: FastifyInstance) {
     ]);
     const readingDirection = series?.metadata?.readingDirection ?? 'WEBTOON';
 
+    // ⚠️ The junk flags ride along with the download. Without this a downloaded chapter reads differently
+    // from the same chapter online -- the reader consults its offline copy BEFORE any server call, so the
+    // flag simply would not be there. That is exactly how this was found: the browser suite downloads
+    // chapters early on, and every later reader check was quietly taking the offline path.
+    const junk = await junkPagesFor(id).catch(() => new Set<number>());
+
     let totalBytes = 0;
     const mapped = (pages ?? []).map((p: any) => {
       totalBytes += p.sizeBytes ?? 0;
@@ -50,6 +57,7 @@ export default async function downloadRoutes(app: FastifyInstance) {
         height: p.height ?? null,
         bytes: p.sizeBytes ?? null,
         mediaType: p.mediaType ?? null,
+        junk: junk.has(p.number) || undefined,
       };
     });
 

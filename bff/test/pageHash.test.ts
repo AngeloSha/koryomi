@@ -156,3 +156,19 @@ test('pages that never hashed are ignored rather than grouped', () => {
   ] as any);
   assert.equal(out.size, 0, 'empty hashes must not all group together into one huge false match');
 });
+
+test('a blank page is not hashed at all', async () => {
+  // ⚠️ Found while writing the browser-test fixture, which generated solid-colour pages. A flat page has
+  // every neighbouring pixel equal, so all 64 comparisons are false and the hash is all zeros -- and EVERY
+  // flat page produces that identical hash whatever its colour. Left unguarded, three blank pages of three
+  // different colours look like the same page repeated three times, which is exactly the pattern that
+  // flags furniture. Refusing to hash them means they are never skipped.
+  const flat = async (v: number) =>
+    sharp(Buffer.alloc(400 * 600 * 3, v), { raw: { width: 400, height: 600, channels: 3 } }).png().toBuffer();
+  assert.equal(await pageHash(await flat(255)), null, 'a white page must not hash');
+  assert.equal(await pageHash(await flat(0)), null, 'nor a black one');
+  assert.equal(await pageHash(await flat(128)), null, 'nor a grey one');
+  // and the real thing still does
+  assert.ok(await pageHash(await png(1)), 'a page with content must still hash');
+});
+

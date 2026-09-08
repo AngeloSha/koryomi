@@ -589,12 +589,17 @@ CREATE TABLE IF NOT EXISTS push_subscriptions (
 
 -- Perceptual hash per page, for finding the pages that are not the story: a scanlator credit page is the
 -- same image in every chapter, so a hash that recurs across chapters of one series is furniture.
---   `hash`     null means "looked at it and could not read it" -- distinct from no row, which means
---              "not looked at yet". The job needs to tell those apart or it retries a broken page forever.
---   `override` null = follow the heuristic, true = always skip, false = never skip. A person's decision
---              outranks the count in BOTH directions and is never recomputed away.
+--   hash      null means "looked at it and could not read it" -- distinct from no row, which means
+--             "not looked at yet". The job needs to tell those apart or it retries a broken page forever.
+--   override  null = follow the heuristic, true = always skip, false = never skip. A person's decision
+--             outranks the count in BOTH directions and is never recomputed away.
+--   book_id   CASCADEs, unlike read_progress beside it, and the difference is the point: progress is
+--             something a person earned and RESTRICT makes losing it impossible by accident, while a page
+--             hash is derived data that is worthless without its chapter and can be recomputed at any time.
+--             Without the cascade these rows outlive every deleted chapter, forever, in a table that has one
+--             row per PAGE of the library.
 CREATE TABLE IF NOT EXISTS page_hashes (
-  book_id    text NOT NULL,
+  book_id    text NOT NULL REFERENCES lib_books(id) ON DELETE CASCADE,
   page       int  NOT NULL,
   hash       text,
   override   boolean,

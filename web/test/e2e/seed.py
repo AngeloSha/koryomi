@@ -26,15 +26,42 @@ def crc32(b: bytes) -> int:
     return c ^ 0xFFFFFFFF
 
 
-def png(w: int, h: int, rgb) -> bytes:
+def _png_from_raw(w: int, h: int, raw: bytes) -> bytes:
     def chunk(t: bytes, d: bytes) -> bytes:
         c = t + d
         return struct.pack('>I', len(d)) + c + struct.pack('>I', crc32(c))
-    raw = b''.join(b'\x00' + bytes(rgb) * w for _ in range(h))
     return (b'\x89PNG\r\n\x1a\n'
             + chunk(b'IHDR', struct.pack('>IIBBBBB', w, h, 8, 2, 0, 0, 0))
             + chunk(b'IDAT', zlib.compress(raw))
             + chunk(b'IEND', b''))
+
+
+def png(w: int, h: int, rgb) -> bytes:
+    return _png_from_raw(w, h, b''.join(b'\x00' + bytes(rgb) * w for _ in range(h)))
+
+
+def bands(w: int, h: int, seed: int) -> bytes:
+    """A page-shaped PNG: a soft gradient with solid blocks whose layout depends on `seed`.
+
+    ⚠️ This is the generator from bff/test/pageHash.test.ts, ported, and the shape matters twice over.
+    A FLAT page hashes to all zeros whatever its colour, so solid fixtures cannot tell "the same page twice"
+    from "two different pages" — the first version of this used `png()` and half the fixture went unhashed.
+    And a page needs enough structure that different seeds land far apart: an earlier banded version
+    produced a story page that collided with the credit page and was wrongly flagged.
+    """
+    raw = b''
+    for y in range(h):
+        row = bytearray()
+        for x in range(w):
+            v = int(40 + (x / w) * 120 + (y / h) * 60)
+            bx, by = int((x / w) * 7), int((y / h) * 11)
+            if (bx * 5 + by * 3 + seed * 13) % 6 == 0:
+                v = 235
+            elif (bx * 3 + by * 7 + seed * 5) % 8 == 0:
+                v = 15
+            row += bytes((v, v, v))
+        raw += b'\x00' + bytes(row)
+    return _png_from_raw(w, h, raw)
 
 
 def pdf(pages: int, w: int = 600, h: int = 900) -> bytes:
@@ -90,6 +117,23 @@ def main(root: str) -> None:
                        f'<?xml version="1.0"?><html xmlns="http://www.w3.org/1999/xhtml"><body>'
                        f'<img src="../images/{s}.png"/></body></html>')
             z.writestr(f'OEBPS/images/{s}.png', png(600, 900, (60, 60 + i * 60, 200)))
+
+    # A second series whose chapters all open with the SAME credit page -- the fixture for the repeated-page
+    # skipper. Without it the browser suite cannot see that feature at all.
+    #
+    # ⚠️ The pages must have internal VARIATION. A solid-colour page has every neighbouring pixel equal, so
+    # its perceptual hash is all zeros no matter what colour it is -- every flat page would look like every
+    # other and they would all be flagged as the same repeated page. (The hash refuses to hash them for
+    # exactly that reason; a flat fixture would silently test nothing.) So these draw bands.
+    r = os.path.join(root, 'Test Source', 'Repeated Pages')
+    os.makedirs(r, exist_ok=True)
+    credit = bands(600, 900, 7)          # identical bytes in every chapter: the "scanlator credit page"
+    for ch in range(1, 4):
+        with zipfile.ZipFile(os.path.join(r, f'Chapter {ch:03d}.cbz'), 'w') as z:
+            z.writestr('001.png', credit)
+            for i in range(2, 5):
+                z.writestr(f'{i:03d}.png', bands(600, 900, ch * 10 + i))   # unique story pages
+    print(f'  seeded {r} (3 chapters sharing one credit page)')
 
     print(f'  seeded {d}')
 

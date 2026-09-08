@@ -6,7 +6,7 @@
 openapi: 3.1.0
 info:
   title: Uchiyomi API
-  version: 0.24.0
+  version: 0.25.0
   description: "Everything the web app does, it does over this API. Session JWTs are for the browser; scripts
     use a personal API token (Profile -> Security -> API tokens), sent as `Authorization: Bearer uy_...`.
     Scopes: read (every token), write (anything that changes data), admin (the /api/admin surface, which also
@@ -762,6 +762,47 @@ paths:
           description: Not authenticated
         "404":
           description: Not found, or not visible to this account
+  /api/books/{id}/pages/{n}/junk:
+    put:
+      tags:
+        - library
+      summary: Mark or un-mark one page as a repeated page the reader should skip.
+      description: >-
+        A person's decision outranks the automatic detection in both directions and is never recomputed
+        away. `true` always skips (useful for a one-off advert, which by definition never repeats and so can
+        never be detected), `false` never skips, `null` hands the page back to the heuristic.
+      operationId: putApiBooksIdPagesNJunk
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: n
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                junk:
+                  type: boolean
+                  nullable: true
+      security:
+        - bearer: []
+      responses:
+        "200":
+          description: OK
+        "400":
+          description: Page number is not a page of this chapter
+        "401":
+          description: Not authenticated
+        "404":
+          description: No such chapter, or one the caller may not see
   /api/offline/plan:
     get:
       tags:

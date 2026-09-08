@@ -152,6 +152,29 @@ you keep scrolling through a series without interruption.
 
 It remembers your scroll position, so closing and reopening drops you right back where you were.
 
+### Skipping the pages that are not the story
+
+Most scanlated chapters open with the same credit page, and some carry an advert or a "read the rest at…"
+splash. Uchiyomi finds them and leaves them out of the flow.
+
+How it decides is deliberately simple: a credit page is *the same image in every chapter of that series*, so
+a page that turns up in three or more chapters of one series is treated as furniture. Story pages are never
+the same picture twice. It only ever compares chapters within a single series.
+
+- Nothing is hidden quietly. A skipped page leaves a small **skipped 1 repeated page — show** chip that puts
+  it back for that chapter with one tap.
+- The **page grid** (tap the page counter) still lists every page, with skipped ones dimmed and labelled, so
+  the chapter you see is never secretly shorter than the chapter you have.
+- You can **mark a page as junk by hand**, or **rescue one** it got wrong, from that grid. Either decision is
+  permanent and beats the automatic rule in both directions — that is the escape hatch that makes skipping
+  safe to leave on.
+- Turn it off entirely with **Skip repeated pages** in the reader settings.
+
+Pages are fingerprinted by a background job, listed with the other library jobs under **Admin → Tasks**. A
+chapter that has not been processed yet simply skips nothing. One limit worth knowing: a chapter you
+downloaded *before* its pages were fingerprinted keeps the flags it was saved with until you download it
+again.
+
 ---
 
 ## 6. Discover & add new series

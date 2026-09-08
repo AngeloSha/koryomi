@@ -82,6 +82,8 @@ export interface Book {
 
 export interface PageInfo {
   number: number;
+  /** Set by the server when this page recurs across chapters of the series -- a credit page, an advert. */
+  junk?: boolean;
   fileName: string;
   mediaType: string;
   width?: number;
@@ -118,7 +120,7 @@ export interface DownloadManifest {
   mediaType: string | null;
   coverUrl: string;
   totalBytes: number;
-  pages: { number: number; url: string; width: number | null; height: number | null; bytes: number | null }[];
+  pages: { number: number; url: string; width: number | null; height: number | null; bytes: number | null; junk?: boolean }[];
 }
 
 export function isWebtoon(dir?: string): boolean {

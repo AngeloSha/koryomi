@@ -82,6 +82,19 @@ export function ReaderSettings({
           </Row>
         )}
 
+        {/* Applies in both modes, so it sits outside the vertical-only block below. */}
+        <Row label={tr('Skip repeated pages')}>
+          <div className="grid grid-cols-2 gap-2">
+            <button onClick={() => set({ skipJunk: true })}
+              className={`rounded-2xl border py-3 text-sm ${prefs.skipJunk ? 'border-accent bg-accent-soft text-accent' : 'border-ink-700 text-fog-300'}`}>{tr('Skip')}</button>
+            <button onClick={() => set({ skipJunk: false })}
+              className={`rounded-2xl border py-3 text-sm ${!prefs.skipJunk ? 'border-accent bg-accent-soft text-accent' : 'border-ink-700 text-fog-300'}`}>{tr('Show all')}</button>
+          </div>
+          <p className="mt-2 text-[11px] leading-snug text-fog-500">
+            {tr('Credit pages and adverts repeat in every chapter. Pages that do are skipped; the reader says so, and they stay in the page grid.')}
+          </p>
+        </Row>
+
         {prefs.mode === 'vertical' && (
           <>
             <Row label={`Page gap · ${prefs.gap}px`}>

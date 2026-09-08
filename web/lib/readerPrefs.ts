@@ -8,9 +8,11 @@ export interface ReaderPrefs {
   fitWidth: boolean;
   theme: ReaderTheme;
   spread: boolean; // paged mode: two pages side by side (manga double-page convention)
+  skipJunk: boolean; // skip pages that repeat across chapters -- credit pages, adverts
 }
 
 export const DEFAULT_PREFS: ReaderPrefs = {
+  skipJunk: true,
   gap: 0,
   brightness: 1,
   mode: 'vertical',

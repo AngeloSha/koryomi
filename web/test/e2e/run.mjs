@@ -123,6 +123,15 @@ try {
   }
 
   // ---------------------------------------------------------------- the library actually lists things
+  /** Sign in over plain HTTP and return an access token. Used by the setup-heavy cases below. */
+  const login = async (u, p) => {
+    const r = await fetch(`${BASE}/auth/login`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ username: u, password: p }),
+    });
+    return r.ok ? (await r.json()).accessToken : null;
+  };
+
   console.log('\n  library contents');
   await page.goto(`${BASE}/library`, { waitUntil: 'networkidle2', timeout: 60000 });
   await sleep(3000);
@@ -228,6 +237,39 @@ try {
         }
       }
     }
+  }
+
+  // ------------------------------------------------------------------ hash the pages, before downloading
+  //
+  // ⚠️ ORDER MATTERS, AND THIS IS THE REALISTIC ORDER. Page hashing is a background job on the server; by
+  // the time a reader downloads a chapter it has long since run. The suite used to download first, and a
+  // downloaded chapter is read out of IndexedDB with whatever flags it carried AT DOWNLOAD TIME -- so the
+  // "repeated pages" check below opened a stale record and saw nothing skipped, no matter what the server
+  // knew. Hashing here is what makes that check about the feature instead of about ordering.
+  //
+  // The genuine limitation this exposes is worth stating: a chapter downloaded BEFORE its pages were hashed
+  // keeps the flags it was saved with until it is downloaded again. Nothing backfills it.
+  //
+  // Over HTTP with its own token: /api/admin/* wants the bearer access token, which lives only in the app's
+  // memory, and minting one from inside the page would rotate the refresh cookie out from under the session
+  // every other block depends on.
+  console.log('\n  page hashes');
+  const hashTok = await login(USER, PASS);
+  let hashed = false;
+  if (!hashTok || !(await fetch(`${BASE}/api/admin/tasks/pagehash/run`, {
+    method: 'POST', headers: { authorization: `Bearer ${hashTok}` },
+  }).then((r) => r.ok).catch(() => false))) {
+    bad('could not start the page-hash job');
+  } else {
+    // Poll rather than sleep a fixed time: on a slow runner the job takes longer than any guess.
+    for (let i = 0; i < 40 && !hashed; i++) {
+      await sleep(1500);
+      const j = await fetch(`${BASE}/api/admin/tasks`, { headers: { authorization: `Bearer ${hashTok}` } })
+        .then((r) => r.json()).catch(() => null);
+      const c = (j?.content || []).find((x) => x.id === 'pagehash');
+      hashed = !!c && !c.running && !!c.lastRun;
+    }
+    hashed ? ok('the page-hash job ran') : bad('the page-hash job did not finish');
   }
 
   // ------------------------------------------------- offline reading, with the server actually unreachable
@@ -600,15 +642,6 @@ try {
     else ok(`the arrow scrolls the rail (${moved.before} -> ${moved.after})`);
   }
 
-  /** Sign in over plain HTTP and return an access token. Used by the two setup-heavy cases below. */
-  const login = async (u, p) => {
-    const r = await fetch(`${BASE}/auth/login`, {
-      method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ username: u, password: p }),
-    });
-    return r.ok ? (await r.json()).accessToken : null;
-  };
-
   // ---------------------------------------------------------------- the unread badge counts unread
   //
   // `seriesDto` hardcoded `booksUnreadCount` to the TOTAL chapter count and the cards read it, so every
@@ -686,6 +719,121 @@ try {
   // The whole chain, end to end: a session cookie set by the button, a query parameter added to every API
   // call, a predicate on the server, and a grid that actually changes. Marking the seeded library 18+ is
   // the cheapest way to get a real one, and it is put back afterwards.
+  // ------------------------------------------------- skipping the pages that are not the story
+  //
+  // The seeder plants a series whose three chapters all open with the SAME credit page. Nothing else in the
+  // library repeats, so exactly one page per chapter should be skipped.
+  //
+  // ⚠️ The hash job normally starts five minutes after boot, so this triggers it and waits. Without that
+  // the assertions below would pass for the wrong reason -- nothing hashed means nothing flagged, which
+  // looks identical to "the feature is off".
+  //
+  // Reintroduce by ANY of: dropping MIN_CHAPTERS to 2 (a story page that happens to repeat once gets
+  // skipped), removing the blank-page guard in pageHash.ts, or pointing the page grid at the reading flow
+  // instead of the full list (a skipped page vanishes from the chapter instead of being dimmed).
+  {
+    console.log('\n  repeated pages');
+    // The job that produces the evidence ran further up, BEFORE anything was downloaded -- see the
+    // "hash the pages" step. Without that ordering this check reads a stale IndexedDB record and proves
+    // nothing, which is exactly how it failed while it was being written.
+    // A fresh token: the hash step ran minutes ago and this block only needs read access.
+    const tok = await login(USER, PASS);
+    if (!hashed || !tok) console.log('    [ .. ] no page hashes, skipping');
+    else {
+      // Found through the library grid, the way the rest of this file does it -- the app's own DOM is the
+      // only listing contract that is actually stable here.
+      await page.goto(`${BASE}/library`, { waitUntil: 'networkidle2', timeout: 60000 });
+      await sleep(3000);
+      const sHref = await page.evaluate(() => {
+        const a = [...document.querySelectorAll('a')]
+          .find((x) => /\/series\//.test(x.getAttribute('href') || '') && /Repeated Pages/i.test(x.textContent || ''));
+        return a ? a.getAttribute('href') : null;
+      });
+      if (!sHref) bad('could not find the seeded Repeated Pages series in the library');
+      else {
+        const sid = (sHref.match(/id=([^&]+)/) || [])[1];
+        // Straight to a chapter URL resolved over HTTP. "Start reading" opens whatever the app considers
+        // next, which is not necessarily a chapter of THIS series once the rest of the suite has read
+        // things; this check needs a specific chapter it can reason about.
+        const bj = await fetch(`${BASE}/api/series/${sid}/books?size=10&sort=metadata.numberSort,asc`, {
+          headers: { authorization: `Bearer ${tok}` },
+        }).then((r) => r.json()).catch(() => null);
+        const book = bj?.content?.[0];
+        if (!book) bad('the Repeated Pages series listed no chapters');
+        else {
+          // ⚠️ The API contract first, in its own right. The browser below can only see the flag through
+          // whichever copy of the chapter it happens to read; this asserts what the server actually says,
+          // and it asserts BOTH directions -- the credit page flagged, every story page not. A rule that
+          // flagged everything would satisfy "something is junk" and hide the whole chapter.
+          const pj = await fetch(`${BASE}/api/books/${book.id}/pages`, {
+            headers: { authorization: `Bearer ${tok}` },
+          }).then((r) => r.json()).catch(() => null);
+          const junk = (pj || []).filter((x) => x.junk).map((x) => x.number);
+          if (!Array.isArray(pj) || !pj.length) bad('the pages endpoint returned nothing for a seeded chapter');
+          else if (junk.length !== 1 || junk[0] !== 1) {
+            bad(`the API flagged pages [${junk}] — the credit page is page 1 and the other ${pj.length - 1} are story`);
+          } else {
+            ok(`the API flags only the repeated credit page (1 of ${pj.length})`);
+
+            // ⚠️ Its own tab. The shared `page` has been driven through a dozen blocks by now and carries
+            // the reader state they left behind -- per-series prefs, a resume position, a warm service
+            // worker. This is about what a reader sees when they OPEN a chapter, so it gets a clean one.
+            // Cookies are per browser context, so the new tab is already signed in.
+            const tab = await browser.newPage();
+            await tab.setViewport({ width: 1440, height: 900 });
+            try {
+              await tab.goto(`${BASE}/reader/?book=${book.id}`, { waitUntil: 'networkidle2', timeout: 60000 });
+              await sleep(8000);
+              const vp = tab.viewport();
+              await tab.mouse.click(Math.round(vp.width / 2), Math.round(vp.height / 2));
+              await sleep(900);
+              const seen = await tab.evaluate(() => ({
+                chip: (document.body.innerText || '').match(/skipped \d+ repeated page/i)?.[0] || null,
+                imgs: [...document.querySelectorAll('img')].filter((i) => i.naturalWidth > 0).length,
+              }));
+              // Both directions: the chip must SAY something was skipped, and the rest must still render.
+              // "Skipped everything" is the failure this feature must never have.
+              if (!seen.chip) bad('a chapter with a repeated credit page skipped nothing');
+              else if (!seen.imgs) bad('the chapter skipped pages and then rendered none of the rest');
+              else {
+                ok(`repeated pages are skipped and said so ("${seen.chip}")`);
+
+                // ⚠️ The correction, from the page grid. The automatic rule is arithmetic over repeated
+                // images and it WILL be wrong sometimes, in both directions; this control is the entire
+                // reason skipping is safe to leave on by default. A route test cannot see whether anything
+                // in the app actually calls it -- and the first version of this feature shipped the route
+                // with no caller at all, while the docs claimed the button existed.
+                await tab.evaluate(() => {
+                  const b = [...document.querySelectorAll('button')]
+                    .find((x) => /jump to a page/i.test(x.getAttribute('aria-label') || ''));
+                  b?.click();
+                });
+                await sleep(1500);
+                const rescued = await tab.evaluate(() => {
+                  const el = [...document.querySelectorAll('[role="button"]')]
+                    .find((x) => /stop skipping page/i.test(x.getAttribute('aria-label') || ''));
+                  if (!el) return null;
+                  el.click();
+                  return el.getAttribute('aria-label');
+                });
+                if (!rescued) bad('the page grid offers no way to un-skip a page the rule got wrong');
+                else {
+                  await sleep(3000);
+                  const still = await tab.evaluate(() =>
+                    (document.body.innerText || '').match(/skipped \d+ repeated page/i)?.[0] || null);
+                  if (still) bad(`un-skipping a page left it skipped ("${still}")`);
+                  else ok(`a page can be rescued by hand from the grid ("${rescued}")`);
+                }
+              }
+            } finally {
+              await tab.close().catch(() => {});
+            }
+          }
+        }
+      }
+    }
+  }
+
   console.log('\n  an 18+ library');
   await page.setViewport({ width: 1440, height: 900 });
   const adminTok0 = await login(USER, PASS);

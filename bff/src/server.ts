@@ -13,6 +13,7 @@ import { DL_ROOT } from './lib/library';
 import { migrate } from './lib/migrate';
 import { loadSources, loadCustomSites, loadBuiltins, listSources, loadSuwayomiSources, scheduleSuwayomiRetry, suwayomiConfigured } from './lib/sources';
 import { scheduleFingerprintBackfill } from './lib/fingerprintJob';
+import { schedulePageHashBackfill } from './lib/pageHashJob';
 import { runSourceCheck } from './lib/sourceWatchdog';
 import { runSweep } from './lib/updater';
 import { runExtensionMonitor } from './lib/extensionMonitor';
@@ -303,6 +304,11 @@ async function main() {
   // every archive on disk, so putting it on the boot path would make start-up time grow with the size of
   // someone's library. Nothing reads the column yet, so not finishing is harmless.
   if (process.env.LIBRARY_BACKEND !== 'komga') scheduleFingerprintBackfill();
+
+  // Page hashes, for skipping the pages that are not the story. Started later than the fingerprint job and
+  // deliberately last: it decodes every page in the library, which is the heaviest thing this process ever
+  // does. Nothing breaks while it is unfinished -- an un-hashed page is simply never skipped.
+  if (process.env.LIBRARY_BACKEND !== 'komga') schedulePageHashBackfill();
 }
 
 main().catch((e) => {

@@ -26,3 +26,6 @@ web/test/e2e/shots-i18n/
 
 # Instance-local files that must never be committed: a login wall built from a real library, etc.
 local/
+
+# Python bytecode from the e2e seed script
+__pycache__/

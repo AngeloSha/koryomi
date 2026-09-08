@@ -282,6 +282,7 @@ GET    /api/series/:id/similar    GET    /api/series/:id/color
 POST   /api/series/search         GET    /api/leaderboard
 GET    /api/books/:id             GET    /api/books/:id/pages
 GET    /api/books/:id/next        PUT    /api/books/:id/progress
+PUT    /api/books/:id/pages/:n/junk
 GET    /api/offline/plan
 ```
 

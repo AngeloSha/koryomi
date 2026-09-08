@@ -32,6 +32,8 @@ enable, and you are responsible for using it in line with those sites' terms and
 ## Features
 
 - **Webtoon-first reader** — vertical scroll or paged, RTL, double-page spreads, per-series settings.
+- **Skips the pages that are not the story** — the scanlator credit page that opens every chapter is
+  found by repetition and left out of the flow, with a tap to bring it back.
 - **True-black OLED interface**, built for a phone and installable as a PWA.
 - **Offline downloads** — save chapters to the device and read them with no connection at all.
 - **Your own library** — CBZ, CBR, PDF, image EPUB or a folder of images, in any folder layout.

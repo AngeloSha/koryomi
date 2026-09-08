@@ -9,6 +9,7 @@ import { persistScan, libraryIdFor, LIBRARY_ROOT, DL_ROOT } from '../lib/library
 import { containedPath } from '../lib/fsGuard';
 import { deleteSeries, restoreSeries, mergeSeries, getSeriesRow, deleteSeriesFiles, renameSeriesFolder } from '../lib/libraryAdmin';
 import { runFingerprintBackfill, fingerprintRemaining, fpState } from '../lib/fingerprintJob';
+import { runPageHashBackfill, pageHashRemaining, phState } from '../lib/pageHashJob';
 import { runBackup } from '../lib/backup';
 import { runUpdateAll, updateSeries, runSweep } from '../lib/updater';
 import { authenticate, requireAdmin, userIdOf, revokeAllSessions, revokeRefreshTokenById, passwordError } from '../lib/auth';
@@ -134,6 +135,17 @@ export default async function adminRoutes(app: FastifyInstance) {
         running: fpState.running,
         remaining: await fingerprintRemaining().catch(() => null),
       },
+      {
+        id: 'pagehash',
+        name: 'Find repeated pages',
+        schedule: 'once, in the background',
+        lastRun: phState.finishedAt,
+        lastResult: phState.finishedAt
+          ? { chapters: phState.chapters, pages: phState.pages, failed: phState.failed, ms: phState.ms }
+          : null,
+        running: phState.running,
+        remaining: await pageHashRemaining().catch(() => null),
+      },
       // Only when there is an extension server to check. Listing a task that cannot run reads as a broken
       // one, and every install without the optional engine would show it permanently "never run".
       ...(suwayomiConfigured() ? [{
@@ -162,6 +174,12 @@ export default async function adminRoutes(app: FastifyInstance) {
       // Not awaited: re-reading every repository index and installing an APK is minutes, and the caller is
       // an admin clicking a button. runExtensionMonitor does the flag, the stored result and the log line.
       if (!runExtensionMonitor(app.log)) return { ok: false, error: 'busy' };
+      return { ok: true, started: true };
+    }
+    if (id === 'pagehash') {
+      if (phState.running) return { ok: false, error: 'busy' };
+      // Never awaited: this decodes every page in the library, which is minutes to hours.
+      runPageHashBackfill().catch(() => {});
       return { ok: true, started: true };
     }
     if (id === 'fingerprint') {

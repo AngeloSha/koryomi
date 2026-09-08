@@ -1,6 +1,7 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { q, one } from '../lib/db';
+import { junkPagesFor, setPageOverride } from '../lib/junkPages';
 import { komgaImage } from '../lib/komga';
 import { content as komga, NATIVE_PROGRESS } from '../lib/backend';
 import { UnsupportedFilter } from '../lib/ownedCatalog';
@@ -464,7 +465,37 @@ export default async function catalogRoutes(app: FastifyInstance) {
 
   app.get('/api/books/:id/pages', async (req) => {
     const { id } = req.params as { id: string };
-    return komga.bookPages(vc(req), id);
+    const pages = await komga.bookPages(vc(req), id);
+    // `junk` rides along on the page list rather than being its own request, so the reader and the offline
+    // download manifest -- which both read this route -- get it without either knowing the feature exists.
+    // A chapter whose pages have not been hashed yet simply comes back with nothing flagged.
+    const junk = await junkPagesFor(id).catch(() => new Set<number>());
+    if (!junk.size) return pages;
+    return Array.isArray(pages)
+      ? pages.map((p: any) => (junk.has(p.number) ? { ...p, junk: true } : p))
+      : pages;
+  });
+
+  // Mark or un-mark one page by hand. A person's call outranks the heuristic in both directions.
+  app.put('/api/books/:id/pages/:n/junk', async (req, reply) => {
+    const { id, n } = req.params as { id: string; n: string };
+    const page = Number(n);
+    const body = (req.body ?? {}) as { junk?: boolean | null };
+    // ⚠️ Resolved through the SAME visibility gate as reading the page list, and for a stronger reason than
+    // the read side has: this flag is not personal. It changes what every account sees. Writing straight
+    // from the params would let a member hide pages in a library they cannot even open, in a chapter nobody
+    // with access ever looked at. `bookPages` returns nothing for a book the caller cannot see, which makes
+    // "did that resolve?" the whole check -- and it bounds the page number as a side effect.
+    // Reintroduce by writing setPageOverride directly from :id and :n: a member with no grant on a library
+    // can then flag pages in it, and the flag sticks for the admin too.
+    const pages = await komga.bookPages(vc(req), id);
+    if (!Array.isArray(pages) || !pages.length) return reply.code(404).send({ error: 'not_found' });
+    if (!Number.isInteger(page) || page < 1 || page > pages.length) {
+      return reply.code(400).send({ error: 'bad_page' });
+    }
+    const v = body.junk === null || body.junk === undefined ? null : !!body.junk;
+    await setPageOverride(id, page, v);
+    return { ok: true };
   });
 
   // Smart-offline plan: the next N unread chapters of each favorite the user should keep offline.

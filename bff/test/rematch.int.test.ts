@@ -58,6 +58,13 @@ async function scanAndFingerprint() {
 }
 
 async function wipe() {
+  // ⚠️ Progress first, and it is not optional. These tests write a read_progress row to prove a rename or a
+  // merge does not strand it, taking whatever user happens to exist (`FROM users LIMIT 1`). The constraint
+  // on read_progress.book_id is ON DELETE RESTRICT on purpose -- losing someone's progress silently is the
+  // thing that must never happen -- so leaving that row behind makes the NEXT wipe fail on a foreign key.
+  // It went unnoticed because it only bites when the database already has a user, which depends on which
+  // other test file ran first: a whole file failing on ordering that has nothing to do with what it tests.
+  await q(`DELETE FROM read_progress WHERE book_id IN (SELECT id FROM lib_books WHERE source = $1)`, [SRC]);
   await q(`DELETE FROM lib_books WHERE source = $1`, [SRC]);
   await q(`DELETE FROM lib_series WHERE source = $1`, [SRC]);
   await rm(join(ROOT_A, SRC), { recursive: true, force: true }).catch(() => {});

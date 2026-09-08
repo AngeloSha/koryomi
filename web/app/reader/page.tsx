@@ -10,7 +10,7 @@ import { chapterOutcome } from '@/lib/readerState';
 import { Book, Page, PageInfo, Series } from '@/lib/types';
 import { chapterLabel } from '@/lib/format';
 import { deviceId } from '@/lib/device';
-import { getOfflineChapter, getPageBlob, queueProgress, noteOfflineProgress, listSeriesDownloads } from '@/lib/downloads';
+import { getOfflineChapter, getPageBlob, queueProgress, noteOfflineProgress, listSeriesDownloads, setOfflinePageJunk } from '@/lib/downloads';
 import { applyCover, clearCover } from '@/lib/theme';
 import { ReaderPrefs, loadPrefs, savePrefs, loadSeriesPrefs, saveSeriesPrefs, syncPrefsFromServer, THEME_FILTER } from '@/lib/readerPrefs';
 import { ReaderSettings } from '@/components/ReaderSettings';
@@ -21,10 +21,10 @@ import { SeriesCard } from '@/components/cards';
 import { IcChevronLeft, IcChevronRight, IcSliders, IcRefresh, IcGrid } from '@/components/icons';
 import { t as tr } from '@/lib/i18n';
 
-interface PageDim { number: number; width: number | null; height: number | null }
+interface PageDim { number: number; width: number | null; height: number | null; junk?: boolean }
 interface Chapter { id: string; seriesId: string; seriesTitle: string; title: string; pages: PageDim[]; offline: boolean; readingDirection?: string | null }
 interface ChapterRef { id: string; label: string }
-interface FlatItem { ci: number; number: number; width: number | null; height: number | null; key: string; firstOfChapter: boolean }
+interface FlatItem { ci: number; number: number; width: number | null; height: number | null; key: string; firstOfChapter: boolean; junk?: boolean }
 
 const WINDOW_BEHIND = 2;
 const WINDOW_AHEAD = 6;
@@ -43,7 +43,7 @@ async function loadChapter(bookId: string): Promise<Chapter | null> {
       seriesId: b.seriesId,
       seriesTitle: b.seriesTitle,
       title: b.metadata?.title || b.name,
-      pages: pInfo.map((p) => ({ number: p.number, width: p.width ?? null, height: p.height ?? null })),
+      pages: pInfo.map((p) => ({ number: p.number, width: p.width ?? null, height: p.height ?? null, junk: p.junk })),
       offline: false,
     };
   } catch {
@@ -205,16 +205,49 @@ function ReaderInner() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bookId, reloadKey]);
 
-  // ---- flat page list across loaded chapters ----
-  const flat: FlatItem[] = useMemo(() => {
+  /**
+   * Pages the server says recur across chapters of this series -- a scanlator's credit page, an advert --
+   * that this reader is currently hiding. Kept per chapter id so "show them" applies to the chapter you are
+   * in and resets when you move on, rather than becoming a mode you forget you turned on.
+   */
+  const [revealed, setRevealed] = useState<Set<string>>(new Set());
+
+  // ---- every page of every loaded chapter, including the ones the flow skips ----
+  const flatAll: FlatItem[] = useMemo(() => {
     const arr: FlatItem[] = [];
     chapters.forEach((ch, ci) =>
       ch.pages.forEach((p, pi) =>
-        arr.push({ ci, number: p.number, width: p.width, height: p.height, key: `${ch.id}:${p.number}`, firstOfChapter: pi === 0 }),
+        arr.push({ ci, number: p.number, width: p.width, height: p.height, key: `${ch.id}:${p.number}`, firstOfChapter: pi === 0, junk: p.junk }),
       ),
     );
     return arr;
   }, [chapters]);
+
+  /**
+   * The reading flow: every page except the furniture.
+   *
+   * ⚠️ This, and not `flatAll`, is what the rest of the reader indexes into -- `current`, the scroll
+   * offsets, the prefetch window, progress, chapter boundaries. Skipping a page has to remove it from THIS
+   * list, because in vertical mode a page that is still in the list is still in the scroll; there is no
+   * "rendered but skipped". `flatAll` survives alongside it purely so the page grid can still show what was
+   * skipped. Reintroduce by pointing the grid at this list instead: a skipped page vanishes from the
+   * chapter entirely, which is the difference between skipping something and hiding it.
+   */
+  const flat: FlatItem[] = useMemo(() => {
+    if (!prefs.skipJunk) return flatAll;
+    const out = flatAll.filter((p) => !p.junk || revealed.has(chapters[p.ci]?.id ?? ''));
+    // Never leave a chapter with nothing in it. If every page of a chapter were somehow flagged, showing
+    // the chapter as empty would look like a broken download; showing it unfiltered is honest.
+    return out.length ? out : flatAll;
+  }, [flatAll, prefs.skipJunk, revealed, chapters]);
+
+  /** How many pages the chapter being read is hiding right now, for the chip. */
+  const hiddenHere = useMemo(() => {
+    const id = chapters[flat[current]?.ci ?? flatAll[0]?.ci ?? 0]?.id;
+    if (!prefs.skipJunk || !id || revealed.has(id)) return 0;
+    return flatAll.filter((p) => p.junk && chapters[p.ci]?.id === id).length;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [flatAll, flat, current, prefs.skipJunk, revealed, chapters]);
 
   // ---- paged slides: 1 page per slide, or double spreads ----
   // The rules, and why each exists, live in lib/readerSpread.ts, where they can be tested without mounting
@@ -449,24 +482,55 @@ function ReaderInner() {
     else el.scrollTo({ left: (slideOf[i] ?? i) * (el.clientWidth || 0) });
   }, [flat.length, prefs.mode, tops, slideOf]);
 
+  /**
+   * Mark or un-mark one page by hand, from the page grid.
+   *
+   * ⚠️ This is the half that makes skipping safe to leave on by default. The automatic rule is arithmetic
+   * over repeated images and it will occasionally be wrong in both directions -- a one-off advert repeats
+   * nowhere and so can never be detected, and a series really can open every chapter on the same legitimate
+   * splash. Without a way to correct it by hand, either mistake would be permanent and the honest default
+   * would be off.
+   *
+   * Optimistic, and it puts the flag back if the server refuses: the grid is a direct-manipulation surface,
+   * so waiting on a round-trip before the tile changes reads as a dead control. The decision is stored per
+   * page on the server and outranks the heuristic from then on.
+   */
+  const toggleJunk = useCallback((pageNumber: number, junk: boolean) => {
+    const ch = chapters[flat[current]?.ci ?? 0];
+    if (!ch) return;
+    const apply = (v: boolean) => setChapters((prev) => prev.map((c) => (c.id !== ch.id ? c : {
+      ...c, pages: c.pages.map((p) => (p.number === pageNumber ? { ...p, junk: v } : p)),
+    })));
+    apply(junk);
+    // Un-marking has to reveal the chapter too, or the page stays out of the flow until the next reload:
+    // `flat` filters on the flag, and a page the reader just rescued should be reachable immediately.
+    if (!junk) setRevealed((prev) => new Set(prev).add(ch.id));
+    api(`/api/books/${ch.id}/pages/${pageNumber}/junk`, { method: 'PUT', json: { junk } })
+      .then(() => setOfflinePageJunk(ch.id, pageNumber, junk))
+      .catch(() => apply(!junk));
+  }, [chapters, flat, current]);
+
   // Thumbnails for the chapter being read, and nothing else -- see PageGrid for why.
   const gridPages = useMemo(() => {
     const ci = flat[current]?.ci;
     if (ci == null) return [];
-    return flat
-      .map((it, idx) => ({ it, idx }))
+    return flatAll
+      .map((it) => ({ it, idx: flat.findIndex((f) => f.key === it.key) }))
       .filter(({ it }) => it.ci === ci)
       .map(({ it, idx }) => {
         const ch = chapters[it.ci];
         return {
+          // -1 when this page is currently skipped: the grid still draws it, dimmed, and tapping it
+          // reveals the chapter rather than jumping nowhere.
           idx,
+          junk: !!it.junk,
           number: it.number,
           // An offline chapter has no URL to request: its pages are blobs already decoded into memory, and
           // the same blob is the thumbnail.
           src: ch ? (ch.offline ? blobUrls.current.get(it.key) || null : img.page(ch.id, it.number, 200)) : null,
         };
       });
-  }, [flat, current, chapters]);
+  }, [flatAll, flat, current, chapters]);
   const activeIdx = chapterRefs.findIndex((c) => c.id === activeChapter?.id);
   const prevId = activeIdx > 0 ? chapterRefs[activeIdx - 1]?.id : undefined;
   const nextId = activeIdx >= 0 && activeIdx < chapterRefs.length - 1 ? chapterRefs[activeIdx + 1]?.id : undefined;
@@ -858,13 +922,42 @@ function ReaderInner() {
         )}
       </AnimatePresence>
 
+      {/* Quiet, and never a dead end. The count is the whole point: a skip you cannot see is
+          indistinguishable from a missing page, which is exactly the complaint this feature exists to
+          remove rather than create. Tapping puts them back, for this chapter only.
+
+          ⚠️ Deliberately NOT gated on the chrome being visible. It was at first, and the browser test
+          caught what that means: the reader auto-hides its chrome a few seconds in, so the one thing
+          telling you a page had been removed disappeared along with it. A notice you have to go looking
+          for is not a notice. */}
+      <AnimatePresence>
+        {hiddenHere > 0 && (
+          <motion.button
+            initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 8 }}
+            onClick={() => {
+              const id = chapters[flat[current]?.ci ?? 0]?.id;
+              if (id) setRevealed((prev) => new Set(prev).add(id));
+            }}
+            className="fixed inset-x-0 bottom-24 z-30 mx-auto w-fit rounded-full bg-black/70 px-3 py-1.5 text-[11px] text-fog-300 backdrop-blur">
+            {hiddenHere === 1
+              ? tr('skipped 1 repeated page — show')
+              : tr('skipped {n} repeated pages — show', { n: hiddenHere })}
+          </motion.button>
+        )}
+      </AnimatePresence>
+
       <AnimatePresence>
         {showSettings && <ReaderSettings prefs={prefs} set={setPref} onClose={() => setShowSettings(false)} />}
       </AnimatePresence>
 
       {showPages && (
+        /* No control with no network: the decision is stored on the server, and a tile that flips and then
+           silently reverts on the next load is worse than no tile at all. Read when the sheet opens rather
+           than subscribed to, which is enough -- the sheet is short-lived and the failure path restores the
+           flag anyway. */
         <PageGrid title={activeChapter?.title || tr('Pages')} pages={gridPages} current={current}
-          onPick={jumpTo} onClose={() => setShowPages(false)} />
+          onPick={jumpTo} onClose={() => setShowPages(false)}
+          onToggleJunk={typeof navigator !== 'undefined' && navigator.onLine === false ? undefined : toggleJunk} />
       )}
       {showChapters && (
         <ChapterSheet title={tr('Chapters')} chapters={chapterRefs} activeId={activeChapter?.id}
