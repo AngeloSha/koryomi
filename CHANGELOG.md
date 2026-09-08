@@ -1,5 +1,39 @@
 # Changelog
 
+## v0.25.1 — 2026-09-08
+
+### The page-hash job could never finish
+
+Found by watching v0.25.0 run against a real library, which is the only place it shows.
+
+The job picks its next batch by asking for chapters that have no page fingerprints yet, and it writes a row
+per page. A chapter that yields *no* pages — an unreadable archive, an empty one, a file that has since been
+moved — therefore wrote nothing, and so was still "not looked at yet" when the next batch was chosen. Working
+chapters get their rows and drop out; broken ones accumulate. The moment they are all that is left, the loop
+has nothing to exhaust and spins on them, at full CPU, forever.
+
+One such chapter in a library is enough, which on any library of real size is close to a certainty.
+
+A chapter that produced nothing now records that it was looked at, so it drops out of the queue like any
+other. That mark is inert everywhere else: it carries no fingerprint, so it can never match another page, and
+it is never offered to the reader as a page to skip.
+
+### A chapter is never mostly skipped
+
+The same first real run turned up the failure this feature is least allowed to have. Across seven thousand
+fingerprinted chapters the average chapter had 1.4 pages of furniture and under 6% of all pages were
+flagged — but a few hundred chapters wanted to skip a third or more of themselves, and the worst wanted 68
+pages out of 88.
+
+Those are duplicate and phantom chapters, where the same file is filed under several chapter numbers. Every
+page then genuinely does recur across chapters, so the arithmetic is right and the conclusion is nonsense.
+Nothing inside the rule can tell that case apart, so the chapter's own shape is the check: if more than a
+third of a chapter is about to be skipped, the automatic decision is thrown away and the chapter reads
+exactly as it always did. Fewer skips, which is the direction this feature is always wrong in.
+
+A page you marked by hand is never subject to that cap. It is the one input that is not arithmetic, and the
+entire point of it is that it outranks the rule.
+
 ## v0.25.0 — 2026-09-08
 
 ### The pages that are not the story

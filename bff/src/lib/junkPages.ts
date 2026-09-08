@@ -29,12 +29,39 @@ export async function junkPagesFor(bookId: string): Promise<Set<number>> {
     rows.filter((r) => r.hash).map((r) => ({ bookId: r.book_id, page: r.page, hash: r.hash as string })),
   );
 
-  const out = new Set<number>();
+  const byHand = new Set<number>();
+  const byRule = new Set<number>();
+  let pages = 0;
   for (const r of rows) {
     if (r.book_id !== bookId) continue;
+    if (r.page > 0) pages++;                          // page 0 is the job's "looked at it" mark, not a page
     if (r.override === false) continue;               // rescued by hand: never skip
-    if (r.override === true || (r.hash && junk.has(r.hash))) out.add(r.page);
+    if (r.override === true) byHand.add(r.page);
+    else if (r.hash && junk.has(r.hash)) byRule.add(r.page);
   }
+
+  /**
+   * ⚠️ If the rule wants to hide most of a chapter, the rule is wrong about that chapter.
+   *
+   * Furniture is a credit page and maybe an advert -- on a real library the average is 1.4 pages, and under
+   * 6% of all pages. Measured against 7,000 hashed chapters, 3.4% of the chapters that skip anything wanted
+   * to skip MORE THAN HALF, and the worst wanted 68 of 88. Those are duplicate and phantom chapters, where
+   * the same file is filed several times over, so every page legitimately "recurs across chapters" and the
+   * arithmetic is correct while the conclusion is nonsense.
+   *
+   * There is no way to tell those apart from inside the rule, so the chapter's own shape is the check: a
+   * chapter that is mostly furniture is not a chapter. Above a third, the heuristic is discarded entirely
+   * and the chapter reads as it always did -- fewer skips, which is the direction this feature is always
+   * wrong in. A third is far above any genuine case and well below every misfire measured.
+   *
+   * A decision made BY HAND is never capped. That is the one source that is not arithmetic, and the whole
+   * point of it is that it outranks the rule.
+   *
+   * Reintroduce by dropping the guard: a chapter whose file is duplicated across the series loses most of
+   * its pages, which is the one failure this feature must never have.
+   */
+  const out = new Set(byHand);
+  if (pages === 0 || byRule.size * 3 <= pages) for (const p of byRule) out.add(p);
   return out;
 }
 

@@ -32,7 +32,15 @@ before(async () => {
   await (await import('../src/lib/migrate')).migrate();
 });
 
-/** Three chapters, each with a credit page 1 and a unique story page 2 — the shape the feature is for. */
+/**
+ * Three chapters, each opening on the same credit page and then three story pages of their own — the shape
+ * the feature is for.
+ *
+ * ⚠️ FOUR pages, not two. The first version of this fixture gave each chapter one credit page and one story
+ * page, which is a chapter that is HALF furniture — a shape no real chapter has, and one the guard below
+ * now refuses outright. A fixture has to be a plausible instance of the thing, or the rule can be changed
+ * in ways that break every real case while the test stays green.
+ */
 beforeEach(async () => {
   if (!DSN) return;
   await q('DELETE FROM page_hashes WHERE book_id LIKE $1', ['b_junk%']);
@@ -45,13 +53,14 @@ beforeEach(async () => {
   for (let c = 1; c <= 3; c++) {
     await q(
       `INSERT INTO lib_books (id, series_id, source, file, number, pages)
-       VALUES ($1, $2, 'owned', $3, $4, 2) ON CONFLICT (id) DO NOTHING`,
+       VALUES ($1, $2, 'owned', $3, $4, 4) ON CONFLICT (id) DO NOTHING`,
       [`b_junk${c}`, SERIES, `/junk/ch${c}.cbz`, c],
     );
     await q(
-      `INSERT INTO page_hashes (book_id, page, hash) VALUES ($1, 1, $2), ($1, 2, $3)
+      `INSERT INTO page_hashes (book_id, page, hash)
+       VALUES ($1, 1, $2), ($1, 2, $3), ($1, 3, $4), ($1, 4, $5)
        ON CONFLICT (book_id, page) DO UPDATE SET hash = EXCLUDED.hash, override = NULL`,
-      [`b_junk${c}`, CREDIT, `story00000000${c}`],
+      [`b_junk${c}`, CREDIT, `story${c}0000000001`, `story${c}0000000002`, `story${c}0000000003`],
     );
   }
   ({ junkPagesFor, setPageOverride } = await import('../src/lib/junkPages'));
@@ -76,6 +85,40 @@ test('a page can be marked by hand that the count would never reach', { skip }, 
   // the feature would have nothing to say about the single most annoying kind of page.
   await setPageOverride('b_junk1', 2, true);
   assert.deepEqual([...await junkPagesFor('b_junk1')].sort(), [1, 2]);
+});
+
+test('a chapter the rule wants to gut is left alone', { skip }, async () => {
+  // ⚠️ The property that matters most: never hide the story. Duplicate and phantom chapters make every page
+  // "recur across chapters", so the arithmetic flags nearly all of them. Measured on a real library, 3.4% of
+  // the chapters that skipped anything wanted to skip more than half, the worst 68 pages of 88.
+  //
+  // Here every page of every chapter is the same set, so all four pages of chapter 1 are flagged.
+  // Reintroduce by removing the cap in junkPagesFor: this chapter comes back with all four pages skipped
+  // and the reader is shown an empty chapter.
+  for (let c = 1; c <= 3; c++) {
+    await q(
+      `INSERT INTO page_hashes (book_id, page, hash) VALUES ($1,1,$2),($1,2,$3),($1,3,$4),($1,4,$5)
+       ON CONFLICT (book_id, page) DO UPDATE SET hash = EXCLUDED.hash, override = NULL`,
+      [`b_junk${c}`, CREDIT, 'dupe000000000002', 'dupe000000000003', 'dupe000000000004'],
+    );
+  }
+  assert.deepEqual([...await junkPagesFor('b_junk1')], [],
+    'the rule wanted the whole chapter — it must be discarded, not applied');
+});
+
+test('the cap never overrules a person', { skip }, async () => {
+  // The cap is a check on ARITHMETIC. A hand-marked page is the one input that is not arithmetic, and it
+  // has to survive even when the rule around it is being thrown away.
+  for (let c = 1; c <= 3; c++) {
+    await q(
+      `INSERT INTO page_hashes (book_id, page, hash) VALUES ($1,1,$2),($1,2,$3),($1,3,$4),($1,4,$5)
+       ON CONFLICT (book_id, page) DO UPDATE SET hash = EXCLUDED.hash, override = NULL`,
+      [`b_junk${c}`, CREDIT, 'dupe000000000002', 'dupe000000000003', 'dupe000000000004'],
+    );
+  }
+  await setPageOverride('b_junk1', 3, true);
+  assert.deepEqual([...await junkPagesFor('b_junk1')], [3],
+    'the discarded heuristic took a hand-marked page down with it');
 });
 
 test('re-running the hash job does not undo a decision', { skip }, async () => {

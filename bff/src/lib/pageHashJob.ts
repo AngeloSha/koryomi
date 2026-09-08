@@ -76,16 +76,26 @@ async function hashChapter(b: Row): Promise<{ ok: number; bad: number }> {
     if (h) ok++; else bad++;
     if (i + 1 >= page.total) break;
   }
-  if (rows.length) {
-    // One statement per chapter. `override` is deliberately NOT touched: a person's decision about a page
-    // outranks the heuristic and must survive every re-run of this job.
-    const values = rows.map((_, i) => `($${i * 3 + 1}, $${i * 3 + 2}, $${i * 3 + 3}, now())`).join(',');
-    await q(
-      `INSERT INTO page_hashes (book_id, page, hash, checked_at) VALUES ${values}
-       ON CONFLICT (book_id, page) DO UPDATE SET hash = EXCLUDED.hash, checked_at = now()`,
-      rows.flat(),
-    ).catch(() => {});
-  }
+  // ⚠️ A chapter that produced NOTHING still has to leave a mark, and this is not tidiness -- without it
+  // the job never finishes. The batch query selects chapters with no page_hashes row at all, so a chapter
+  // that yields zero pages (an unreadable archive, an empty one) is still unhashed when the next batch is
+  // chosen, and is chosen again. Good chapters get rows and drop out; the broken ones accumulate, and the
+  // moment they are all that is left the loop spins on them forever at full CPU with nothing to show.
+  // ONE such chapter in a library is enough.
+  //
+  // Page 0 is the mark: not a real page number, so it can never be mistaken for one -- `junkPagesFor`
+  // returns page numbers and this row has a null hash and no override, so it is never returned.
+  // Reintroduce by dropping this branch: point a lib_books row at a file that does not exist and
+  // pageHashRemaining() never reaches 0, however many times the job runs.
+  const values = (rows.length ? rows : [[b.id, 0, null] as [string, number, string | null]])
+    .map((_, i) => `($${i * 3 + 1}, $${i * 3 + 2}, $${i * 3 + 3}, now())`).join(',');
+  // `override` is deliberately NOT touched: a person's decision about a page outranks the heuristic and
+  // must survive every re-run of this job.
+  await q(
+    `INSERT INTO page_hashes (book_id, page, hash, checked_at) VALUES ${values}
+     ON CONFLICT (book_id, page) DO UPDATE SET hash = EXCLUDED.hash, checked_at = now()`,
+    (rows.length ? rows : [[b.id, 0, null]]).flat(),
+  ).catch(() => {});
   return { ok, bad };
 }
 

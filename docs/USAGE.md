@@ -169,6 +169,9 @@ the same picture twice. It only ever compares chapters within a single series.
   permanent and beats the automatic rule in both directions — that is the escape hatch that makes skipping
   safe to leave on.
 - Turn it off entirely with **Skip repeated pages** in the reader settings.
+- If more than a third of a chapter is about to be skipped, nothing is. That happens when the same file is
+  filed under several chapter numbers, so every page really does repeat — the arithmetic is right and the
+  answer is useless. A page you marked by hand is never subject to that limit.
 
 Pages are fingerprinted by a background job, listed with the other library jobs under **Admin → Tasks**. A
 chapter that has not been processed yet simply skips nothing. One limit worth knowing: a chapter you

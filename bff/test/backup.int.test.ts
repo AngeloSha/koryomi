@@ -95,7 +95,12 @@ test('a backup reports what it really captured', { skip }, async (t) => {
   });
 
   await t.test('a run that captured NO config says so instead of reading as clean', async () => {
-    rmSync(join(process.env.CONFIG_DIR!, 'sites.json'), { force: true });
+    // ⚠️ The WHOLE directory, not just sites.json. The server generates and persists its own secrets on
+    // first boot -- jwt.secret, and since v0.25.0 vapid.json for push -- so "a config directory with
+    // nothing in it" is a state the running app no longer produces by itself. Removing one file used to
+    // empty the directory and no longer does, which made this case assert nothing at all.
+    rmSync(process.env.CONFIG_DIR!, { recursive: true, force: true });
+    mkdirSync(process.env.CONFIG_DIR!, { recursive: true });
     // Backup folders are stamped to the second, and the run above takes well under one -- without this the
     // second run lands in the SAME directory and inspects the first run's archive.
     await new Promise((r) => setTimeout(r, 1100));
