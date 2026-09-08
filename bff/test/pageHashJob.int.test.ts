@@ -74,3 +74,32 @@ test('the mark is never served as a junk page', { skip }, async () => {
   const { junkPagesFor } = await import('../src/lib/junkPages');
   assert.deepEqual([...await junkPagesFor(BOOK)], [], 'the sentinel leaked into the reader as a page');
 });
+
+test('a page marked by hand does not retire the chapter from the queue', { skip }, async () => {
+  // ⚠️ THE BUG. `setPageOverride` writes a `page_hashes` row, and the queue used to ask "does this chapter
+  // have ANY row?" -- so a reader marking an advert by hand on a chapter the job had not reached yet
+  // silently retired the whole chapter. Its other pages were never fingerprinted and the automatic rule
+  // never ran there again: marking one page turned the feature off for that chapter, which is the exact
+  // opposite of what was asked for. Most likely on a NEW series, where the backlog is precisely the
+  // chapters a reader is opening.
+  // Reintroduce by asking `NOT EXISTS (... WHERE p.book_id = b.id)` without the `AND p.page = 0`: remaining
+  // drops to 0 below and the chapter is never looked at.
+  const { setPageOverride } = await import('../src/lib/junkPages');
+  const job = await import('../src/lib/pageHashJob');
+
+  await q('DELETE FROM page_hashes WHERE book_id = $1', [BOOK]);
+  const before = await job.pageHashRemaining();
+  await setPageOverride(BOOK, 2, true);
+  assert.equal(await job.pageHashRemaining(), before,
+    'a hand-marked page must leave the chapter exactly as queued as it was');
+
+  // and once the job has actually looked at it, it drops out for good
+  await job.runPageHashBackfill({ max: 5 });
+  assert.equal(await job.pageHashRemaining(), before - 1, 'a chapter that has been looked at leaves the queue');
+
+  // the decision itself survives the pass that follows it
+  const rows = await q<{ override: boolean | null }>(
+    'SELECT override FROM page_hashes WHERE book_id = $1 AND page = 2', [BOOK],
+  );
+  assert.equal(rows[0]?.override, true, "the job overwrote a person's decision");
+});

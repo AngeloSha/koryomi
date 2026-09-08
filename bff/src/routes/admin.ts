@@ -129,7 +129,7 @@ export default async function adminRoutes(app: FastifyInstance) {
       {
         id: 'fingerprint',
         name: 'Fingerprint library files',
-        schedule: 'once, in the background',
+        schedule: 'in the background, rechecked every 6h',
         lastRun: fpState.finishedAt,
         lastResult: fpState.finishedAt ? { done: fpState.done, failed: fpState.failed, ms: fpState.ms } : null,
         running: fpState.running,
@@ -138,7 +138,7 @@ export default async function adminRoutes(app: FastifyInstance) {
       {
         id: 'pagehash',
         name: 'Find repeated pages',
-        schedule: 'once, in the background',
+        schedule: 'in the background, rechecked every 6h',
         lastRun: phState.finishedAt,
         lastResult: phState.finishedAt
           ? { chapters: phState.chapters, pages: phState.pages, failed: phState.failed, ms: phState.ms }

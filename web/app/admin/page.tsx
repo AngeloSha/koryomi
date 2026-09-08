@@ -934,7 +934,15 @@ function Tasks() {
           <div key={t.id} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 px-4 py-3.5 lg:grid-cols-[minmax(0,20rem)_minmax(0,1fr)_auto]">
             <p className="col-start-1 row-start-1 min-w-0 truncate text-sm text-fog-100">{t.name}</p>
             {/* Phone stacks the schedule under the name; from lg it takes a track of its own. */}
-            <p className="col-start-1 row-start-2 min-w-0 truncate text-[11px] text-fog-500 lg:col-start-2 lg:row-start-1">{t.schedule} · {t.lastRun ? `last run ${relativeTime(new Date(t.lastRun).toISOString())}` : 'not run yet'}{taskResult(t.lastResult)}</p>
+            {/* ⚠️ `remaining` is shown because the backlog is the one number that tells you whether a task is
+                keeping up. The server has always sent it and nothing displayed it, so a job that had quietly
+                stopped picking up new work looked identical to one with nothing to do. */}
+            <p className="col-start-1 row-start-2 min-w-0 truncate text-[11px] text-fog-500 lg:col-start-2 lg:row-start-1">
+              {t.schedule} · {t.lastRun ? `last run ${relativeTime(new Date(t.lastRun).toISOString())}` : 'not run yet'}{taskResult(t.lastResult)}
+              {typeof t.remaining === 'number' && t.remaining > 0 && (
+                <span className="text-amber-300"> · {t.remaining.toLocaleString()} waiting</span>
+              )}
+            </p>
             <button onClick={() => run(t.id)} disabled={t.running}
               className="chip col-start-2 row-span-2 row-start-1 shrink-0 justify-self-end text-xs disabled:opacity-50 lg:col-start-3 lg:row-span-1">{t.running ? 'Running…' : 'Run now'}</button>
           </div>

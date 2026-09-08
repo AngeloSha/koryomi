@@ -1,5 +1,41 @@
 # Changelog
 
+## v0.26.1 — 2026-09-08
+
+### The background jobs keep up now
+
+Fingerprinting ran **once**, five minutes after the server started, and never again. Nothing else asked for
+it either — not a library scan, not the updater sweep, not adding a series from Discover — so every chapter
+downloaded after that single pass went unprocessed until the container happened to restart. A server that
+simply stays up was the worst case, which is exactly backwards.
+
+The effect was invisible because it looks like nothing: the reader treats an un-fingerprinted page as an
+ordinary page, so the feature just quietly stopped applying to anything new. Measured on a real library the
+day it shipped: 22 chapters, all added after that morning's boot, still untouched hours later, with 50 to 80
+more arriving daily.
+
+Both backfills now re-check every six hours, re-arming after each pass — including a pass that failed, since
+a job that stops rescheduling because one batch went wrong is the same bug wearing a different hat. The long
+first delay stays: page fingerprinting decodes every page in the library and should not compete with a server
+that has just booted.
+
+The same fault was in the older chapter-fingerprint job, which feeds folder rematch. Fixed alongside.
+
+### Marking a page by hand no longer switches the feature off for that chapter
+
+Marking a page as repeated wrote a row that made the chapter look already-processed, so it was dropped from
+the queue for good — its other pages were never fingerprinted and the automatic rule never ran there again.
+Marking one advert turned detection off for the whole chapter, and it was most likely on a **new** series,
+where the backlog is exactly the chapters being opened.
+
+A chapter is now recorded as looked-at only when it has actually been looked at.
+
+### Admin → Tasks shows the backlog
+
+The number of chapters still waiting was calculated, sent to the browser and then discarded, so a job that had
+quietly stopped picking up work looked identical to one with nothing left to do. Each task now shows how many
+items are outstanding, and the schedule reads honestly instead of claiming the job runs once.
+
 ## v0.26.0 — 2026-09-08
 
 ### A repeated page folds down instead of disappearing

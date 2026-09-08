@@ -132,8 +132,17 @@ export async function runFingerprintBackfill(opts: { max?: number } = {}): Promi
  * Kick the backfill off a while after boot, so it never competes with a server that is still warming up and
  * never delays it. Never awaited, never throws.
  */
-export function scheduleFingerprintBackfill(delayMs = 60_000): void {
-  setTimeout(() => {
-    void runFingerprintBackfill().catch((e) => console.warn('[fingerprint] backfill failed', (e as Error)?.message));
-  }, delayMs).unref?.();
+export function scheduleFingerprintBackfill(delayMs = 60_000, everyMs = 6 * 60 * 60_000, run = runFingerprintBackfill): void {
+  // ⚠️ Re-armed, for the same reason as the page-hash job beside it: a one-shot pass leaves every chapter
+  // added after boot unfingerprinted until the container restarts, and this column feeds folder rematch.
+  // Reintroduce by dropping the re-arm: it runs once and new chapters are never picked up.
+  const tick = async () => {
+    try {
+      await run();
+    } catch (e) {
+      console.warn('[fingerprint] backfill failed', (e as Error)?.message);
+    }
+    setTimeout(tick, everyMs).unref?.();
+  };
+  setTimeout(tick, delayMs).unref?.();
 }
