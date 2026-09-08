@@ -1,5 +1,59 @@
 # Changelog
 
+## v0.25.0 — 2026-09-08
+
+### The pages that are not the story
+
+Every chapter of a scanlated series opens with the same credit page. Some carry an advert, or a "read the
+rest at…" splash. You swipe past them, chapter after chapter, and they are the single most repetitive thing
+about reading here. No manga reader does anything about this — the closest thing in any adjacent product is
+Jellyfin skipping a TV intro.
+
+Uchiyomi now finds them and skips them, and the way it decides is deliberately dull. A credit page is *the
+same image in every chapter of that series*, so a page whose fingerprint turns up in three or more chapters
+is furniture. That is arithmetic, not a guess about what a page looks like: story pages are not the same
+picture twice. Three chapters and not two, because two chapters sharing a title card is a coincidence, and
+two is the commonest state of a part-downloaded series.
+
+It only ever compares chapters within one series, even though the same group's credit page across *different*
+series would be stronger evidence still. Flagging across series means a page could be hidden in a book whose
+chapters nobody ever compared, and missing a few skips is a far better failure than that.
+
+Nothing is ever hidden without saying so. A skipped page leaves a quiet chip — *skipped 1 repeated page —
+show* — that puts it back with one tap, and the page grid still lists every page, dimmed and labelled, so the
+chapter you see is never secretly shorter than the chapter you have. You can mark a page as junk by hand, or
+rescue one it got wrong; either decision is permanent and outranks the arithmetic in both directions, which
+is what makes skipping safe to leave on by default. It is a switch in reader settings if you would rather it
+did not. Pages are fingerprinted by a background job, alongside the other library jobs in Admin → Tasks.
+
+One honest limit: a chapter you downloaded *before* its pages were fingerprinted keeps the flags it was saved
+with, until you download it again.
+
+### Things this app claimed that were not true
+
+Four of them, found by reading our own documentation against our own code.
+
+Push notifications are listed as a feature; they need a pair of keys that only the developer setup script
+ever generated, so on a normal install the button was not missing-with-a-reason, it was simply absent. The
+server now generates and keeps those keys on first boot, exactly as it already did for its signing secret.
+
+`docs/CONFIGURATION.md` said `.env.example` was the authoritative list of settings. Twenty-one of twenty-three
+were not in it, including the ones most worth touching on a small server — how many series a sweep may check,
+the free-space floor, how long a Cloudflare-protected source is allowed. They are all there now, with their
+real defaults.
+
+The v0.6.0 changelog announced that renaming a folder no longer loses your series. That code ships switched
+off and appeared in no example file. It is documented now, off by default, with its `report` mode explained.
+
+And a badge added yesterday, showing which series you have downloaded, went stale the moment you downloaded
+another — the function that refreshes it had no callers. Mine, from the day before.
+
+### Thanks
+
+[@hawwwwwk](https://github.com/hawwwwwk) again, for [#32](https://github.com/AngeloSha/uchiyomi/pull/32):
+`docs/INSTALL.md` still described a database container that has not existed since v0.18.0. Second time he has
+caught stale install docs.
+
 ## v0.24.0 — 2026-09-07
 
 ### The app opens on a plane
