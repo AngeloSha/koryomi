@@ -15,6 +15,22 @@
 @source "../lib/";
 
 @theme {
+  /* Two breakpoints past Tailwind's own, for the cover grids on large displays.
+   *
+   * ⚠️ THESE EXIST BECAUSE `min-[1800px]:` DID NOT WORK. Tailwind v4 emits every arbitrary `min-[…]`
+   * variant BEFORE the named breakpoints, so on a 1920px display `2xl:grid-cols-9` (96rem) came later in
+   * the stylesheet and won -- and `min-[1800px]:grid-cols-10`, written in four places, had never applied
+   * once. Nothing failed: the grid simply rendered one step short of what the code said, forever.
+   *
+   * A named breakpoint is sorted with the others by value, so it composes -- but ⚠️ IN THE SAME UNIT. Given
+   * in `px` these sorted BEFORE every built-in `rem` breakpoint and the bug came straight back, measured
+   * identical. Tailwind's own scale is rem, so these are rem. Never mix the two variant families on one
+   * property either; see the guard in test/library.test.ts.
+   */
+  --breakpoint-wide: 106.25rem; /* 1700px */
+  --breakpoint-3xl: 112.5rem;   /* 1800px */
+  --breakpoint-4xl: 137.5rem;   /* 2200px */
+
   /* True-black OLED base with a cool, near-neutral surface ramp. */
   --color-ink-950: #000000;
   --color-ink-900: #060608;

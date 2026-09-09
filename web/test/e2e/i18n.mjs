@@ -27,15 +27,43 @@ await p.type('input[type=password]', process.env.E2E_PASS || 'e2e-passw0rd-123')
 await p.keyboard.press('Enter');
 await new Promise((r) => setTimeout(r, 4500));
 
+/**
+ * Sign in again if the session went, and wait for the library to have actually rendered.
+ *
+ * ⚠️ TWO RACES, BOTH OF WHICH MAKE THIS FILE MEASURE THE WRONG PAGE. This harness runs against the instance
+ * the browser suite leaves behind, which ends by signing out and drives several tabs that share one cookie
+ * jar; and `networkidle2` fires before React has painted, which is the same race the comment above the
+ * login already records. Either way the text sampled below is a login form or an empty shell, and a
+ * translation check against a page with no words on it passes every language.
+ */
+async function readyLibrary() {
+  if (await p.$('input[type=password]')) {
+    const i2 = await p.$$('input');
+    if (i2.length) {
+      await i2[0].type(process.env.E2E_USER || 'e2e');
+      await p.type('input[type=password]', process.env.E2E_PASS || 'e2e-passw0rd-123');
+      await p.keyboard.press('Enter');
+      await new Promise((r) => setTimeout(r, 4500));
+      await p.goto(`${BASE}/library`, { waitUntil: 'networkidle2', timeout: 60000 });
+    }
+  }
+  // The filter sidebar is the last thing on this page to exist, so it is the honest "rendered" signal.
+  await p.waitForSelector('aside', { timeout: 20000 }).catch(() => {});
+  await new Promise((r) => setTimeout(r, 1200));
+}
+
 for (const code of LOCALES) {
   await p.evaluate((c) => localStorage.setItem('uchiyomi.lang', c), code);
   await p.goto(`${BASE}/library`, { waitUntil: 'networkidle2', timeout: 60000 });
   await new Promise((r) => setTimeout(r, 2200));
+  await readyLibrary();
 
   const info = await p.evaluate(() => ({
     lang: document.documentElement.lang,
     dir: document.documentElement.dir,
-    text: (document.body.innerText || '').slice(0, 400),
+    // 400 was enough when this only had to see the nav. The library now renders its filter panel
+    // beside the grid on a 1280px viewport, and the words this check depends on run past that.
+    text: (document.body.innerText || '').slice(0, 1500),
     overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
     len: (document.body.innerText || '').trim().length,
   }));
@@ -47,9 +75,28 @@ for (const code of LOCALES) {
   if (info.len < 40) problems.push('the page is blank');
   if (info.overflow > 4) problems.push(`${info.overflow}px of horizontal overflow`);
 
-  // A translated page must not still be showing the English nav.
-  if (code !== 'en' && /\bLibrary\b/.test(info.text) && /\bBrowse\b/.test(info.text)) {
-    problems.push('the navigation is still in English — nothing was translated');
+  // A translated page must not still be showing English chrome.
+  //
+  // ⚠️ THIS USED TO READ `/\bLibrary\b/ && /\bBrowse\b/`, AND DELETING THE BROWSE TAB WOULD HAVE MADE IT
+  // UNFALSIFIABLE -- always false, therefore always passing, therefore no longer detecting an untranslated
+  // nav in any of the eight languages. Nothing would have failed. So the check is now counted, and it
+  // audits its own premise in English below.
+  const LIBRARY_EN = ['Home', 'Library', 'Lists', 'Discover', 'Sort by', 'Updated', 'Newest', 'Read state'];
+  // ⚠️ Case-INSENSITIVE. The filter panel's section labels are `uppercase` in CSS, and Chrome's
+  // `innerText` reports text as rendered -- so "Sort by" reads back as "SORT BY". A case-sensitive
+  // match found 6 of these 8 words and the clause below said so, which is exactly what it is for.
+  const english = LIBRARY_EN.filter((w) => new RegExp(`\\b${w}\\b`, 'i').test(info.text));
+
+  if (code !== 'en' && english.length >= 3) {
+    problems.push(`the page is still in English: ${english.join(', ')}`);
+  }
+  // ⚠️ THE ANTI-VACUITY CLAUSE, and the whole point of the rewrite. In English every one of these words is
+  // on /library at 1280px. If a redesign renames or removes them, this fails LOUDLY here instead of quietly
+  // emptying the assertion above -- which is exactly what deleting the Browse tab would have done.
+  if (code === 'en' && english.length < LIBRARY_EN.length) {
+    problems.push(`only ${english.length}/${LIBRARY_EN.length} of the words this check relies on are still on `
+      + `/library (missing: ${LIBRARY_EN.filter((w) => !english.includes(w)).join(', ')}) — update LIBRARY_EN, `
+      + `or work out why the page says: ${JSON.stringify(info.text.slice(0, 160))}`);
   }
 
   // Nav labels reach `tr()` through a VARIABLE, which a literal scan of the source cannot see. That blind

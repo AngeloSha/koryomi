@@ -64,7 +64,8 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
     { key: 'updates', label: 'Updates', hint: 'new chapters', icon: <IcBell width={16} height={16} />, run: () => go('/updates') },
     { key: 'moments', label: 'Moments', hint: 'pages you saved', icon: <IcMoments width={16} height={16} />, run: () => go('/moments') },
     { key: 'downloads', label: 'Offline downloads', icon: <IcDownload width={16} height={16} />, run: () => go('/downloads') },
-    { key: 'browse', label: 'Browse genres', icon: <IcGrid width={16} height={16} />, run: () => go('/browse') },
+    // Genres are a filter now, not a page. The palette still gets you there in one keystroke.
+    { key: 'genres', label: 'Filter by genre', icon: <IcGrid width={16} height={16} />, run: () => go('/library') },
     {
       key: 'refresh', label: 'Refresh library', hint: 'scan for new chapters', icon: <IcRefresh width={16} height={16} />,
       run: async () => { onClose(); toast('Refreshing…'); await triggerRefresh(); toast('Refresh started', 'success'); },

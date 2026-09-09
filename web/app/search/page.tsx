@@ -81,7 +81,7 @@ function SearchInner() {
       {debounced.length >= 2 && (
         <div className="px-4 pt-4 lg:px-0">
           {isFetching && !data ? (
-            <div className="grid grid-cols-3 gap-x-3 gap-y-5 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-7 xl:grid-cols-8 2xl:grid-cols-9 min-[1800px]:grid-cols-10">
+            <div className="grid grid-cols-3 gap-x-3 gap-y-5 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-7 xl:grid-cols-8 2xl:grid-cols-9 3xl:grid-cols-10">
               {Array.from({ length: 12 }).map((_, i) => <div key={i} className="skeleton aspect-[2/3] rounded-2xl" />)}
             </div>
           ) : (data?.content.length ?? 0) === 0 ? (
@@ -89,7 +89,7 @@ function SearchInner() {
           ) : (
             <>
               <p className="mb-3 text-xs text-fog-500">{data?.totalElements} results</p>
-              <div className="grid grid-cols-3 gap-x-3 gap-y-5 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-7 lg:gap-x-4 xl:grid-cols-8 2xl:grid-cols-9 min-[1800px]:grid-cols-10">
+              <div className="grid grid-cols-3 gap-x-3 gap-y-5 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-7 lg:gap-x-4 xl:grid-cols-8 2xl:grid-cols-9 3xl:grid-cols-10">
                 {data?.content.map((s, i) => <SeriesTile key={s.id} series={s} eager={i < 12} />)}
               </div>
             </>

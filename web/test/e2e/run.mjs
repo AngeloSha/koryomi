@@ -100,9 +100,35 @@ try {
     (await page.$('input[type=password]')) ? bad('still on the login form after valid credentials') : ok('signed in');
   }
 
+  /**
+   * Put `p` back on a signed-in page if the session has gone, and say so.
+   *
+   * ⚠️ NOT PAPERING OVER A BUG -- MAKING ONE VISIBLE. This run drives several tabs that share one cookie
+   * jar, and `/auth/refresh` rotates the refresh cookie, so two tabs refreshing at once can race. The app
+   * handles the common case (see the "lost a rotation race" branch in bff/src/routes/auth.ts) and the run
+   * has a whole block devoted to session behaviour; everywhere else, a dropped session is noise that lands
+   * on whatever assertion happens to be next.
+   *
+   * And it lands SILENTLY, which is the real problem. A signed-out /library contains none of the seeded
+   * series names either, so "the 18+ library is off the grid" passed on a page showing a login form. Every
+   * caller below therefore checks this FIRST, so the assertion that follows is about what it claims to be.
+   */
+  const ensureSignedIn = async (p, where) => {
+    if (!(await p.$('input[type=password]'))) return true;
+    console.log(`    [ -- ] ${where}: the session was dropped (tabs racing on refresh) — signing back in`);
+    const ins = await p.$$('input');
+    if (!ins.length) { bad(`${where}: signed out and no login form to recover with`); return false; }
+    await ins[0].type(USER);
+    await p.type('input[type=password]', PASS);
+    await p.keyboard.press('Enter');
+    await sleep(4000);
+    if (await p.$('input[type=password]')) { bad(`${where}: could not sign back in`); return false; }
+    return true;
+  };
+
   // ---------------------------------------------------------------- every screen
   for (const [name, path] of [['home', '/'], ['library', '/library'], ['search', '/search'],
-                              ['browse', '/browse'], ['downloads', '/downloads'],
+                              ['collections', '/collections'], ['downloads', '/downloads'],
                               ['profile', '/profile'], ['admin', '/admin']]) {
     console.log(`\n  ${path}`);
     const before = consoleErrors.length;
@@ -124,12 +150,35 @@ try {
 
   // ---------------------------------------------------------------- the library actually lists things
   /** Sign in over plain HTTP and return an access token. Used by the setup-heavy cases below. */
+  /**
+   * An access token for these credentials, minted at most once every ten minutes.
+   *
+   * ⚠️ MEMOISED BECAUSE `/auth/login` IS RATE LIMITED TO TEN PER FIVE MINUTES PER IP (routes/auth.ts), AND
+   * THIS SUITE WAS MAKING EXACTLY TEN. Measured on a clean run: the busiest five-minute window held 10
+   * logins against a limit of 10, so the suite sat precisely on the boundary and any eleventh -- a retry, a
+   * re-signin after a dropped session -- came back 429. That does not fail cleanly: sign-in stops working,
+   * every later block reads as a broken feature, and which blocks fail depends on timing. Four of the five
+   * calls here ask for the SAME admin account, so caching removes the problem rather than budgeting around
+   * it, and leaves headroom for the member accounts and for recovery.
+   *
+   * Ten minutes, against a fifteen-minute ACCESS_TTL_SECONDS: comfortably fresh, and a whole run is about
+   * eight minutes, so in practice the admin token is minted once.
+   */
+  const tokenCache = new Map();
   const login = async (u, p) => {
+    const hit = tokenCache.get(`${u}\u0000${p}`);
+    if (hit && Date.now() - hit.at < 10 * 60_000) return hit.token;
     const r = await fetch(`${BASE}/auth/login`, {
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ username: u, password: p }),
     });
-    return r.ok ? (await r.json()).accessToken : null;
+    if (r.status === 429) {
+      bad('/auth/login answered 429 — the run has exhausted its own login budget (10 per 5 minutes)');
+      return null;
+    }
+    const token = r.ok ? (await r.json()).accessToken : null;
+    if (token) tokenCache.set(`${u}\u0000${p}`, { at: Date.now(), token });
+    return token;
   };
 
   console.log('\n  library contents');
@@ -606,6 +655,100 @@ try {
     }
   }
 
+  // ------------------------------------------------- the library's filters, on a phone and on a laptop
+  //
+  // The library used to carry three horizontally-scrolling chip rails in its header -- one of them seven
+  // chips wide, mixing sorts with filters with a select mode -- and a hand-rolled copy of the Sheet
+  // component that had no `role="dialog"` and no Escape handler. Both presentations of the one panel are
+  // driven here, because the source scan in test/library.test.ts can only see that the right component is
+  // imported, not that it opens.
+  await page.goto(`${BASE}/library`, { waitUntil: 'networkidle2', timeout: 60000 }).catch(() => {});
+  await sleep(2000);
+  {
+    const chip = await page.evaluateHandle(() =>
+      [...document.querySelectorAll('button')].find((b) => /^Filters/.test(b.textContent || '')) || null);
+    const el = chip.asElement();
+    if (!el) bad('phone library: no Filters button');
+    else {
+      await el.click();
+      await sleep(700);
+      const opened = await page.evaluate(() => {
+        const d = document.querySelector('[role=dialog]');
+        if (!d) return null;
+        return { modal: d.getAttribute('aria-modal'), text: (d.textContent || '').slice(0, 400) };
+      });
+      if (!opened) bad('phone library: the Filters button opened no dialog');
+      else {
+        opened.modal === 'true' ? ok('phone library: the filter sheet is a real dialog') : bad('phone library: the filter sheet is not aria-modal');
+        // The sections are the whole point of the redesign: one labelled group each, not a chip pile.
+        const missing = ['Sort by', 'Read state', 'Status', 'Genres'].filter((h) => !opened.text.includes(h));
+        missing.length ? bad(`phone library: the filter sheet is missing ${missing.join(', ')}`)
+                       : ok('phone library: the filter sheet is grouped into labelled sections');
+        await shot('phone-library-filters');
+        // ⚠️ The copy this replaced could not do this. Reintroduce the hand-rolled overlay and it fails.
+        await page.keyboard.press('Escape');
+        await sleep(500);
+        const still = await page.evaluate(() => !!document.querySelector('[role=dialog]'));
+        still ? bad('phone library: Escape did not close the filter sheet') : ok('phone library: Escape closes the filter sheet');
+      }
+    }
+  }
+
+  await page.setViewport({ width: 1440, height: 900 });
+  await page.goto(`${BASE}/library`, { waitUntil: 'networkidle2', timeout: 60000 }).catch(() => {});
+  await sleep(2200);
+  {
+    // On a wide screen the panel is not behind a button at all.
+    const side = await page.evaluate(() => {
+      const a = document.querySelector('aside');
+      if (!a) return null;
+      const r = a.getBoundingClientRect();
+      const grid = document.querySelector('[data-library-grid]');
+      const g = grid && grid.getBoundingClientRect();
+      return {
+        w: Math.round(r.width), text: (a.textContent || '').slice(0, 300),
+        gridLeft: g ? Math.round(g.left) : null, asideRight: Math.round(r.right),
+        filtersChipVisible: [...document.querySelectorAll('button')]
+          .some((b) => /^Filters/.test(b.textContent || '') && b.getBoundingClientRect().width > 0),
+      };
+    });
+    if (!side || side.w < 100) bad('library @1440: no filter sidebar beside the grid');
+    else {
+      ok(`library @1440: a ${side.w}px filter sidebar`);
+      side.gridLeft !== null && side.gridLeft >= side.asideRight
+        ? ok('library @1440: the grid starts after the sidebar')
+        : bad('library @1440: the grid overlaps the sidebar');
+      // Two copies of the same panel on one screen would be the obvious way to get this wrong.
+      side.filtersChipVisible ? bad('library @1440: the Filters button is still shown beside an open sidebar')
+                              : ok('library @1440: no redundant Filters button');
+      const missing = ['Sort by', 'Read state'].filter((h) => !side.text.includes(h));
+      missing.length ? bad(`library @1440: the sidebar is missing ${missing.join(', ')}`)
+                     : ok('library @1440: the sidebar carries its labelled sections');
+    }
+
+    // Picking a genre must actually filter, and say so in the url -- the panel is a pure component over the
+    // url, so a click that does not navigate is a panel that has quietly stopped being wired to anything.
+    const before = await page.evaluate(() => document.querySelectorAll('[data-library-grid] > *').length);
+    const clicked = await page.evaluate(() => {
+      const row = document.querySelector('aside [aria-pressed="false"]');
+      if (!row) return false;
+      row.click();
+      return true;
+    });
+    if (!clicked) bad('library @1440: nothing selectable in the filter sidebar');
+    else {
+      await sleep(2500);
+      const url = page.url();
+      /genres=|read=|status=|lib=|sort=/.test(url)
+        ? ok(`library @1440: picking a filter wrote it to the url (${url.split('?')[1] || ''})`)
+        : bad(`library @1440: picking a filter changed nothing in the url (${url})`);
+      const after = await page.evaluate(() => document.querySelectorAll('[data-library-grid] > *').length);
+      console.log(`    [ -- ] grid went from ${before} to ${after} tiles`);
+    }
+  }
+  await shot('library-filters-desktop');
+  await page.setViewport({ width: 390, height: 844, isMobile: true, hasTouch: true });
+
   // ---------------------------------------------------------------- the rails move
   //
   // Discover's rails were `hide-scrollbar … overflow-x-auto`: the bar was deleted, Lenis's smooth wheel
@@ -698,7 +841,7 @@ try {
   console.log('\n  moving around by clicking');
   await page.goto(BASE, { waitUntil: 'networkidle2', timeout: 60000 });
   await sleep(3000);
-  for (const href of ['/library', '/browse', '/discover', '/collections', '/updates', '/', '/discover']) {
+  for (const href of ['/library', '/discover', '/collections', '/updates', '/', '/discover']) {
     const clicked = await page.evaluate((h) => {
       const links = [...document.querySelectorAll('a')];
       const a = links.find((x) => (x.getAttribute('href') || '').replace(/\/$/, '') === h.replace(/\/$/, ''));
@@ -854,6 +997,13 @@ try {
                 try {
                   await deep.goto(`${BASE}/reader/?book=${book.id}&page=3`, { waitUntil: 'networkidle2', timeout: 60000 });
                   await sleep(6000);
+                  // A third tab on the same cookie jar; if the session lost a refresh race the reader is a
+                  // login form, and the page counter below comes back null -- reported as "the page number
+                  // drifted", which is a confident answer to the wrong question.
+                  if (await ensureSignedIn(deep, 'the deep link')) {
+                    await deep.goto(`${BASE}/reader/?book=${book.id}&page=3`, { waitUntil: 'networkidle2', timeout: 60000 });
+                    await sleep(6000);
+                  }
                   const dv = deep.viewport();
                   await deep.mouse.click(Math.round(dv.width / 2), Math.round(dv.height / 2));
                   await sleep(900);
@@ -912,9 +1062,18 @@ try {
       try {
         await page.goto(`${BASE}/library/`, { waitUntil: 'networkidle2', timeout: 60000 });
         await sleep(3000);
+        // ⚠️ THE VACUITY GUARD FOR THE ASSERTION BELOW. "None of the seeded names are on the page" is also
+        // true of a login form, so without this the next check passed whenever the session had dropped --
+        // and it did, intermittently, reporting a missing 18+ button instead of a missing session.
+        if (await ensureSignedIn(page, 'the 18+ check')) {
+          await page.goto(`${BASE}/library/`, { waitUntil: 'networkidle2', timeout: 60000 });
+          await sleep(2500);
+        }
         await shot('library-18-hidden');
         const hiddenText = await page.evaluate(() => document.body.innerText || '');
-        SEEDED.some((n) => hiddenText.includes(n))
+        const signedOut = await page.evaluate(() => !!document.querySelector('input[type=password]'));
+        if (signedOut) bad('the 18+ check ran against a signed-out page — it would have passed for the wrong reason');
+        else SEEDED.some((n) => hiddenText.includes(n))
           ? bad('an 18+ library is still listed on the library page by default')
           : ok('the 18+ library is off the grid');
 
@@ -924,7 +1083,23 @@ try {
           b.click();
           return true;
         });
-        if (!chip) bad('no "Show 18+" control appeared for an account that has an 18+ library');
+        if (!chip) {
+          // ⚠️ Say WHY. The control renders only when /api/libraries reports an adult library, so a missing
+          // chip means either the page is not signed in or it is looking at a stale list -- and the check
+          // above ("off the grid") passes VACUOUSLY in the signed-out case, because a page showing nothing
+          // contains none of the seeded names either. Without this, a session problem reads as a UI bug.
+          const why = await page.evaluate(async () => {
+            const signedOut = !!document.querySelector('input[type=password]');
+            let seen = 'not asked';
+            try {
+              const r = await fetch('/api/libraries');
+              seen = `${r.status} ${(await r.text()).slice(0, 120)}`;
+            } catch (e) { seen = `threw ${e.message}`; }
+            return { signedOut, seen, buttons: [...document.querySelectorAll('button')].length };
+          });
+          bad(`no "Show 18+" control appeared for an account that has an 18+ library `
+            + `(signed out: ${why.signedOut}, ${why.buttons} buttons, /api/libraries: ${why.seen})`);
+        }
         else {
           await sleep(3500);
           await shot('library-18-shown');

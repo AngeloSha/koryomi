@@ -62,11 +62,15 @@ two-factor auth, you'll be asked for your 6-digit code (or a recovery code) afte
 
 ![Library](shots/library.webp)
 
-The **Library** tab is your whole collection. Tabs across the top sort it: **Curated**, **Newest**, **Most
-read**. Each cover shows a **NEW** ribbon when there are unread chapters. Click a cover to open the series.
+The **Library** tab is your whole collection, and every way to narrow it lives in one filter panel:
+sorting, which library, read state, publication status, format and genre. On a laptop the panel sits down
+the left of the grid; on a phone it opens from **Filters** at the top. Genres are listed biggest-first with
+how many series each holds, and formats (Manhwa, Manhua, Webtoon…) are kept separate from moods like Horror
+and Romance. Picking two genres shows series that are in **both**. Each cover shows a **NEW** ribbon when
+there are unread chapters. Click a cover to open the series. The ✦ button picks one at random.
 
-The top bar has **Home** (a daily-pick hero + "For you" rails), **Library**, **Browse** (by genre), and
-**Discover**, plus search, the updates bell, a refresh button, and your profile.
+The top bar has **Home** (a daily-pick hero + "For you" rails), **Library**, **Lists** and **Discover**,
+plus search, the updates bell, a refresh button, and your profile.
 
 ### What counts as a chapter
 
@@ -116,7 +120,8 @@ read it this week.
 **If you are an admin**, the series page also carries the controls for that series:
 
 - **Edit** its title, author, publication status, genres, summary, cover and banner art. All of it applies
-  everywhere (search, sorting, Browse, the recommendation rails, the reader header) and none of it touches
+  everywhere (search, sorting, the library's genre filter, the recommendation rails, the reader header)
+  and none of it touches
   your files. Anything you set here survives the next scan; anything you leave blank keeps following what
   the files say.
 - **Edit a chapter** from its row menu, if its number came out wrong. Numbers are read from the filename by

@@ -14,7 +14,7 @@ import puppeteer from 'puppeteer';
 const BASE = process.env.BASE || 'http://127.0.0.1:18140';
 const USER = process.env.E2E_USER || 'e2e';
 const PASS = process.env.E2E_PASS || 'e2e-passw0rd-123';
-const PAGES = (process.env.PAGES || '/,/library,/browse,/discover,/profile,/admin,/moments').split(',');
+const PAGES = (process.env.PAGES || '/,/library,/collections,/discover,/profile,/admin,/moments').split(',');
 
 // How much of a wide viewport the content must actually occupy. Not 100%: a settings form SHOULD have
 // margins, and prose that runs 1900px wide is unreadable. But a page using less than this is a column
@@ -167,6 +167,28 @@ try {
         if (m.painted < 12) ok(`${path} @${w}: too little on screen to judge width (${m.painted} painted)`);
         else if (pct < MIN_FILL * 100) bad(`${path} @${w}: content spans only ${pct}% of the window — a column stranded in a void`);
         else ok(`${path} @${w}: content spans ${pct}% of the window`);
+
+        // ⚠️ THE FILL METRIC ABOVE CANNOT SEE THIS ONE. `fill` is the span between the leftmost and
+        // rightmost painted things, so putting a filter sidebar on the left and the grid on the right
+        // scores just as well as a full-width grid -- and would still score 95% with the grid squeezed into
+        // a third of the window. The sidebar is a fixed `lg:w-56 xl:w-64`, so what has to be watched is
+        // what is LEFT for the covers.
+        if (path === '/library') {
+          const g = await page.evaluate(() => {
+            const el = document.querySelector('[data-library-grid]');
+            if (!el) return null;
+            const r = el.getBoundingClientRect();
+            return {
+              w: Math.round(r.width),
+              cols: getComputedStyle(el).gridTemplateColumns.split(/\s+/).filter(Boolean).length,
+              vw: document.documentElement.clientWidth,
+            };
+          });
+          if (!g) bad(`/library @${w}: no [data-library-grid] — the sidebar split lost its measuring hook`);
+          else if (g.w / g.vw < 0.6) bad(`/library @${w}: the filter sidebar left the grid only ${Math.round(g.w / g.vw * 100)}% of the window`);
+          else if (g.cols < 5) bad(`/library @${w}: the grid dropped to ${g.cols} columns beside the sidebar`);
+          else ok(`/library @${w}: grid is ${g.w}px / ${g.cols} columns beside the sidebar`);
+        }
       }
     }
   }

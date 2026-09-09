@@ -155,7 +155,7 @@ export default function HomePage() {
       {/* For you */}
       {(foryou?.content?.length ?? 0) > 0 && (
         <section className="pt-8">
-          <SectionTitle action={<Link href="/browse" className="text-xs text-accent">{tr('Browse')}</Link>}>{tr('For you')}</SectionTitle>
+          <SectionTitle action={<Link href="/library" className="text-xs text-accent">{tr('Library')}</Link>}>{tr('For you')}</SectionTitle>
           <Rail>
             {foryou!.content.map((s) => <SeriesCard key={s.id} series={s} />)}
           </Rail>

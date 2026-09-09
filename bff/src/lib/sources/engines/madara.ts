@@ -11,6 +11,26 @@ import { pickImgUrl, pickImgUrlIn, pickAllImgUrls, dropRepeatedCovers } from '..
 const strip = plainText;
 const norm = (u: string) => u.replace(/^\/\//, 'https://').replace(/&amp;/g, '&').trim();
 
+/**
+ * The key a series' url is matched on WITHIN one parse. Not the url itself -- the url is the identity that
+ * gets stored, and it is emitted untouched.
+ *
+ * ⚠️ THE PASSES BELOW READ THE SAME HREF OUT OF DIFFERENT MARKUP, AND THEY DO NOT AGREE ON THE TRAILING
+ * SLASH. The thumbnail-fallback pattern ends `[^"/?#]+)\/?"` -- the `/?` sits OUTSIDE the capture -- so it
+ * yields `/manga/blue-lock` where the heading pass yields `/manga/blue-lock/`. On a site that writes the
+ * slash, `seen` therefore never matched, every series was emitted a SECOND time titled from its `<img alt>`,
+ * and that copy carried no cover because the cover map was keyed the other way. Measured on a live
+ * MangaRead listing: twelve series parsed as twenty-four, half of them blank -- and since `latestPage`
+ * dedupes by sourceId and then takes 24, half the source's Discover feed was a copy of the other half.
+ *
+ * It hid because every fixture in madaraListing.test.ts writes urls WITHOUT the slash. The one shape that
+ * breaks is the one shape the tests never used.
+ *
+ * Reintroduce by keying `covers` and `seen` on `norm(...)` directly: a slash-terminated listing doubles, and
+ * the mirror case -- thumbnail href bare, heading href slashed -- loses every cover instead.
+ */
+const key = (u: string) => norm(u).replace(/\/+$/, '');
+
 // Madara search-result and latest-listing pages share the same result-card markup, so parse both here.
 export function parseResults(h: string, sourceId: string): SourceSeries[] {
   const covers = new Map<string, string>();
@@ -23,23 +43,24 @@ export function parseResults(h: string, sourceId: string): SourceSeries[] {
   // cards. ManhuaPlus was one: fifteen results, fifteen thumbnails in the html, none of them found.
   for (const m of h.matchAll(/class="[^"]*(?:tab-thumb|item-thumb)[^"]*"[^>]*>\s*<a[^>]+href="([^"]+)"[^>]*>\s*(<img[^>]+>)/gi)) {
     const u = pickSrc(m[2]);
-    if (u) covers.set(norm(m[1]), norm(u));
+    if (u) covers.set(key(m[1]), norm(u));
   }
   // Some themes hang the thumbnail off the anchor with no wrapper class at all. Only consulted for urls the
   // pass above did not already resolve, so a real thumbnail always wins over a guess.
   for (const m of h.matchAll(/<a[^>]+href="([^"]+\/manga\/[^"]+)"[^>]*>\s*(<img[^>]+>)/gi)) {
-    const key = norm(m[1]);
+    const k = key(m[1]);
     const u = pickSrc(m[2]);
-    if (u && !covers.has(key)) covers.set(key, norm(u));
+    if (u && !covers.has(k)) covers.set(k, norm(u));
   }
   const out: SourceSeries[] = [];
   const seen = new Set<string>();
   // match `post-title` as a class token in any tag (div/h3/…) with extra classes — sites tweak this markup
   for (const m of h.matchAll(/class="[^"]*\bpost-title\b[^"]*"[^>]*>[\s\S]*?<a[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/gi)) {
     const url = norm(m[1]);
-    if (seen.has(url)) continue;
-    seen.add(url);
-    out.push({ sourceId: url, source: sourceId, title: strip(m[2]), url, coverUrl: covers.get(url) });
+    const k = key(url);
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push({ sourceId: url, source: sourceId, title: strip(m[2]), url, coverUrl: covers.get(k) });
   }
 
   // A second way in, for themes whose cards carry a thumbnail but no `post-title` heading the pass above can
@@ -54,11 +75,12 @@ export function parseResults(h: string, sourceId: string): SourceSeries[] {
   // same series appears once per recent chapter, and de-duplicating by url is the right answer.)
   for (const m of h.matchAll(/class="[^"]*(?:tab-thumb|item-thumb)[^"]*"[^>]*>\s*<a[^>]+href="([^"]+\/manga\/[^"/?#]+)\/?"[^>]*>\s*(<img[^>]+>)/gi)) {
     const url = norm(m[1]);
-    if (seen.has(url)) continue;
+    const k = key(url);
+    if (seen.has(k)) continue;
     const alt = (m[2].match(/\salt="([^"]+)"/i) || [])[1];
     if (!alt) continue;
-    seen.add(url);
-    out.push({ sourceId: url, source: sourceId, title: strip(alt), url, coverUrl: covers.get(url) });
+    seen.add(k);
+    out.push({ sourceId: url, source: sourceId, title: strip(alt), url, coverUrl: covers.get(k) });
   }
   // ⚠️ A cover shared by three or more of these is not a cover. Dropping it is the repair: showing one
   // picture on twenty cards is a confident lie, and nothing lets the real fallbacks take over. See imgAttr.

@@ -1,5 +1,77 @@
 # Changelog
 
+## v0.27.0 — 2026-09-09
+
+### One Library, and its filters finally organised
+
+Browse was a second Library. `/browse?genre=Horror` ran the same search over the same collection and drew it
+in the same grid as `/library?genres=Horror` — the only thing it had of its own was the wall of genre tiles.
+So the tab is gone, and the wall's useful half has moved to where you were going to end up anyway.
+
+The Library's own controls had drifted into a pile: three horizontally-scrolling rows of chips, one of them
+seven wide, mixing four sort options with a Filters button, an 18+ toggle and a Select toggle — nothing
+saying which were sorts and which were filters. Behind the Filters button, the genre list was a flat wall of
+**ninety-three unsorted, uncounted, unsearchable words**.
+
+All of it now lives in one panel with labelled sections — **Sort by**, **Library**, **Read state**,
+**Status**, **Format**, **Genres**. On a laptop the panel sits down the left of the grid and stays there. On
+a phone it opens as a proper sheet: one Filters button instead of a row of seven chips.
+
+What came across from Browse:
+
+- **Genres are counted and ranked**, biggest first, each with a small mosaic of covers from that shelf — the
+  part of the old tile wall that made it worth looking at, at a size that suits a list.
+- **Formats stay separate from genres.** Manhwa covers 161 of the 2,132 series on the library this was built
+  against, so ranked by size it outranks every actual genre while saying nothing about what a book is like.
+- **Surprise me**, the random-series button, is now beside the Library title.
+- A **search box** over the genres, so ninety-three of them is a list rather than a wall.
+
+Two things fixed on the way past:
+
+- The genre list used to come from an endpoint that returns genres exactly as they are spelled, while the
+  filter matches them case-insensitively. That is 100 chips for 93 genres: "Martial arts" and "Martial Arts"
+  appeared as two, and either one returned the same series. They are now one.
+- Picking a library used to filter the grid while the Filters badge said nothing was filtered, because the
+  library tabs were counted as navigation rather than as a filter. Now everything that narrows the shelf
+  counts, and `Clear all` clears all of it.
+
+The publication statuses — Ongoing, Completed, Hiatus, Cancelled — were being title-cased in code rather
+than translated, so they read in English in all eight languages. They are translated now.
+
+### Large displays have been a column short this whole time
+
+Found while measuring the new layout, and older than it. Five cover grids — library, search (twice),
+discover and the admin picker — each ended with a step like `min-[1800px]:grid-cols-10`, and **not one of
+them had ever applied**. Tailwind emits that kind of breakpoint before its own named ones, so on a 1920px
+display the earlier `2xl` rule came later in the stylesheet and won.
+
+Nothing failed, because a grid one step short of its own source code still looks like a grid. Measured in a
+browser at 2560px: seven columns of 314px covers where the class list asked for ten.
+
+The extra breakpoints are now declared properly, and a test refuses any responsive step that a later rule
+would override. It found the fifth grid on its first run.
+
+### The last of the MangaRead covers
+
+Different fault from v0.26.3, and this one was doubling the listing.
+
+The listing parser reads the same series link out of three different pieces of markup, and one of the three
+patterns dropped the trailing slash from the URL while the other two kept it. On any site that writes the
+slash — MangaRead does — the check for "have I already seen this series?" never matched. Every series came
+back **twice**: once properly, and once more named after its `alt` text and carrying no cover at all.
+
+Measured against a live MangaRead listing: twelve series parsed as twenty-four. Because a source page keeps
+the first 24 results, that also means half of what MangaRead offered on Discover was a copy of the other
+half. The proper entries came first and the blank ones after, which is why it looked like a few missing
+covers rather than a doubled list.
+
+The three passes now agree on the key. The URL a series is *stored* under is untouched, so nothing already
+in a library is affected. This also fixes the reverse case, which nobody had reported: a site writing the
+slash on its headings but not its thumbnails loses **every** cover rather than half of them.
+
+It hid for so long because every fixture in the test file wrote URLs without a trailing slash — the one
+shape that breaks was the one shape the tests never used. It is now asserted in both directions.
+
 ## v0.26.3 — 2026-09-09
 
 ### The rest of the grey covers, and why they broke on their own

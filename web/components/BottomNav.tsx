@@ -13,7 +13,7 @@ const NAV_LABELS = keys('Home', 'Library', 'Search', 'Discover', 'Offline', 'You
 const items = [
   { href: '/', label: NAV_LABELS[0], Icon: IcHome, match: (p: string) => p === '/' },
   { href: '/library', label: NAV_LABELS[1], Icon: IcGrid, match: (p: string) => p.startsWith('/library') || p.startsWith('/series') },
-  { href: '/search', label: NAV_LABELS[2], Icon: IcSearch, match: (p: string) => p.startsWith('/search') || p.startsWith('/browse') },
+  { href: '/search', label: NAV_LABELS[2], Icon: IcSearch, match: (p: string) => p.startsWith('/search') },
   // Discover had no entry here at all, on a phone-first PWA, while being item five of five on the desktop
   // nav. The page that adds new series was reachable only from a small + on the library page.
   { href: '/discover', label: NAV_LABELS[3], Icon: IcPlus, match: (p: string) => p.startsWith('/discover') },

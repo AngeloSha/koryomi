@@ -15,13 +15,15 @@ import { keys, t as tr } from '@/lib/i18n';
 // `keys()` is the identity function; it exists so these reach the translation extractor, which
 // cannot see a label rendered as `tr(label)`. This nav shipped untranslated once already.
 // See lib/i18n.ts.
-const NAV_LABELS = keys('Home', 'Library', 'Browse', 'Lists', 'Discover');
+// ⚠️ The labels are POSITIONAL indices into that array, so removing one renumbers every entry after it --
+// silently, with no type error, relabelling the tabs that follow. Browse came out here; Lists and Discover
+// moved from 3,4 to 2,3.
+const NAV_LABELS = keys('Home', 'Library', 'Lists', 'Discover');
 const links = [
   { href: '/', label: NAV_LABELS[0], Icon: IcHome, match: (p: string) => p === '/' },
   { href: '/library', label: NAV_LABELS[1], Icon: IcGrid, match: (p: string) => p.startsWith('/library') || p.startsWith('/series') },
-  { href: '/browse', label: NAV_LABELS[2], Icon: IcSparkle, match: (p: string) => p.startsWith('/browse') },
-  { href: '/collections', label: NAV_LABELS[3], Icon: IcBookmark, match: (p: string) => p.startsWith('/collection') },
-  { href: '/discover', label: NAV_LABELS[4], Icon: IcPlus, match: (p: string) => p.startsWith('/discover') },
+  { href: '/collections', label: NAV_LABELS[2], Icon: IcBookmark, match: (p: string) => p.startsWith('/collection') },
+  { href: '/discover', label: NAV_LABELS[3], Icon: IcPlus, match: (p: string) => p.startsWith('/discover') },
 ];
 
 export function TopNav({ onSearchFocus }: { onSearchFocus?: () => void }) {

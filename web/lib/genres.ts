@@ -26,3 +26,22 @@ export interface GenreFacet {
   series: number | null;
   covers: string[];
 }
+
+/**
+ * Are these two genre strings the same genre?
+ *
+ * ⚠️ CASE-FOLDED, BECAUSE THE SERVER FOLDS. The library filter matches `lower(g) = lower($n)`, so
+ * `genres=Martial arts` in a url really is filtering by Martial Arts. But `/api/genres/overview` labels each
+ * facet with the spelling the library mostly uses, so the url and the label can legitimately disagree —
+ * and an exact comparison would draw that row unselected while the grid beside it was filtered by it.
+ *
+ * This is not hypothetical: on the library this was written against, `SELECT DISTINCT g` returns 100 strings
+ * for 93 genres. Seven pairs differ only in case ("Slice of life" / "Slice of Life", "Video games" /
+ * "Video Games"), and any shared link or bookmark made before this change can carry either one.
+ *
+ * Reintroduce by comparing with `===`: open /library?genres=Martial%20arts and the Martial Arts row is
+ * drawn unselected, tapping it ADDS a second copy, and the pill above the grid will not clear it.
+ */
+export function sameGenre(a: string, b: string): boolean {
+  return a.trim().toLowerCase() === b.trim().toLowerCase();
+}

@@ -108,3 +108,85 @@ test('one series with three recent chapters is one result, not three', () => {
   const out = parseResults(card('a') + card('a') + card('a') + card('b'), 'example');
   assert.deepEqual(out.map((o) => o.title), ['a', 'b']);
 });
+
+// ---------------------------------------------------------------------------------------------------
+// THE TRAILING SLASH.
+//
+// Every fixture above writes `https://example.org/manga/some-series`. Real Madara sites write
+// `…/some-series/`, and that one character was the whole of the second MangaRead cover bug: the heading
+// pass and the cover map key on the href as written, while the thumbnail-fallback pattern ends
+// `[^"/?#]+)\/?"` with the `/?` OUTSIDE the capture, so it keys on the href with the slash stripped. The
+// sets never met. Twelve series parsed as twenty-four, the twelve extra titled from their `<img alt>` and
+// carrying no cover -- and because `latestPage` dedupes by sourceId (which differed) and then takes 24,
+// half of the source's Discover feed was a copy of the other half.
+//
+// ⚠️ BOTH ORDERS ARE ASSERTED, for the same reason imgAttr.test.ts asserts both attribute orders: a site
+// can write the slash in either place, and a test that pins only one is passed by the bug.
+
+/** A stock Madara card, with the slash on whichever hrefs the caller asks for. */
+const slashCard = (slug: string, where: 'both' | 'thumb' | 'title' | 'neither') => {
+  const t = where === 'both' || where === 'thumb' ? '/' : '';
+  const h = where === 'both' || where === 'title' ? '/' : '';
+  return `
+    <div class="page-item-detail">
+      <div class="item-thumb">
+        <a href="https://example.org/manga/${slug}${t}"><img alt="Read ${slug}" src="https://cdn/${slug}.jpg"></a>
+      </div>
+      <div class="post-title"><h3><a href="https://example.org/manga/${slug}${h}">${slug}</a></h3></div>
+    </div>`;
+};
+
+test('THE DOUBLED LISTING: a site that writes trailing slashes yields one entry per series', () => {
+  // Reintroduce by keying `covers`/`seen` on `norm(...)` instead of `key(...)`: this returns six entries for
+  // three series, and the three extra ones are titled "Read a" and have no cover at all.
+  const html = ['a', 'b', 'c'].map((s) => slashCard(s, 'both')).join('');
+  const out = parseResults(html, 'example');
+  assert.deepEqual(out.map((o) => o.title), ['a', 'b', 'c'], 'one entry per series, titled from the heading');
+  assert.deepEqual(out.map((o) => o.coverUrl), ['https://cdn/a.jpg', 'https://cdn/b.jpg', 'https://cdn/c.jpg']);
+});
+
+test('the url a series is stored under keeps the slash the site wrote', () => {
+  // ⚠️ The KEY is normalised, never the identity. `sourceId` is how a series is stored, and series already
+  // in a library carry the slashed form -- rewriting it here would orphan every one of them.
+  // Reintroduce by emitting `key(m[1])` as the url: every existing MangaRead series stops matching.
+  const [only] = parseResults(slashCard('blue-lock', 'both'), 'example');
+  assert.equal(only.url, 'https://example.org/manga/blue-lock/');
+  assert.equal(only.sourceId, 'https://example.org/manga/blue-lock/');
+});
+
+test('THE MIRROR CASE: a bare thumbnail href and a slashed heading href still find each other', () => {
+  // The same disagreement the other way round. Nobody has reported this one, because it needs a theme that
+  // writes the slash in its heading and not in its thumbnail -- but it loses EVERY cover, not half of them.
+  // Reintroduce by dropping the key normalisation: coverUrl is undefined on all three.
+  const html = ['a', 'b', 'c'].map((s) => slashCard(s, 'title')).join('');
+  const out = parseResults(html, 'example');
+  assert.deepEqual(out.map((o) => o.title), ['a', 'b', 'c']);
+  assert.deepEqual(out.map((o) => o.coverUrl), ['https://cdn/a.jpg', 'https://cdn/b.jpg', 'https://cdn/c.jpg'],
+    'the heading pass must find the cover the thumbnail pass stored');
+});
+
+test('and the reverse mirror, plus the no-slash shape the older fixtures use', () => {
+  for (const where of ['thumb', 'neither'] as const) {
+    const out = parseResults(['a', 'b'].map((s) => slashCard(s, where)).join(''), 'example');
+    assert.deepEqual(out.map((o) => o.title), ['a', 'b'], `${where}: one entry per series`);
+    assert.deepEqual(out.map((o) => o.coverUrl), ['https://cdn/a.jpg', 'https://cdn/b.jpg'], `${where}: covers found`);
+  }
+});
+
+test('the alt-titled fallback still works when there is genuinely no heading', () => {
+  // The doubling fix must not disarm the pass it came from: a theme with thumbnails and no `post-title`
+  // still has to yield its series, slash or no slash.
+  // Reintroduce by deleting the fallback pass: this returns nothing at all.
+  const card = (slug: string) =>
+    `<div class="item-thumb"><a href="https://example.org/manga/${slug}/"><img alt="${slug}" src="/x.webp"></a></div>`;
+  const out = parseResults(card('only-a-thumb') + card('another'), 'example');
+  assert.deepEqual(out.map((o) => o.title), ['only-a-thumb', 'another']);
+  assert.deepEqual(out.map((o) => o.coverUrl), ['/x.webp', '/x.webp']);
+
+  // ⚠️ This pass emits the url WITHOUT the trailing slash, because its own pattern ends `[^"/?#]+)\/?"` and
+  // the `/?` is outside the capture. That is left exactly as it was, deliberately: for a theme with no
+  // headings this pass is the ONLY source of the url, so it is also the sourceId every series from that
+  // site was stored under. Making it faithful to the markup would orphan all of them for a cosmetic gain.
+  // The bug was never the shape -- it was the two shapes being compared to each other.
+  assert.equal(out[0].url, 'https://example.org/manga/only-a-thumb');
+});

@@ -821,7 +821,7 @@ function ArtReview() {
           </button>
         ))}
       </div>
-      <div className="full grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5 xl:grid-cols-6 min-[1700px]:grid-cols-8">
+      <div className="full grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5 xl:grid-cols-6 wide:grid-cols-8">
         {rows.map((r) => (
           <button key={r.id} onClick={() => setOpen(r)} className="card overflow-hidden p-0 text-start transition hover:border-accent/40">
             <div className="relative h-16 w-full overflow-hidden bg-ink-900">

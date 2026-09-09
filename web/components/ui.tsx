@@ -73,7 +73,20 @@ export function useRtl(): boolean {
  * `data-lenis-prevent` on the scroller is not optional: Lenis drives smooth scrolling for the whole app, and
  * without it a flick inside the sheet scrolls the chapter behind it instead.
  */
-export function Sheet({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
+export function Sheet({ title, onClose, overBottomNav, children }: {
+  title: string;
+  onClose: () => void;
+  /**
+   * Clear the bottom nav bar as well as the safe area.
+   *
+   * ⚠️ Off by default because this was written for the reader, which hides the whole shell -- there is no
+   * nav bar there to clear. Opened from a page that HAS one, the default padding puts the last rows of the
+   * sheet underneath it: on the library's filters that made the final genre unreachable, on a phone, with
+   * nothing on screen to suggest anything was missing. 5.5rem is the bar plus its own safe-area inset.
+   */
+  overBottomNav?: boolean;
+  children: ReactNode;
+}) {
   const bodyRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
@@ -93,8 +106,12 @@ export function Sheet({ title, onClose, children }: { title: string; onClose: ()
         ref={bodyRef}
         onClick={(e) => e.stopPropagation()}
         data-lenis-prevent
-        className="glass max-h-[75vh] w-full overflow-y-auto rounded-t-3xl border border-ink-700 p-4
-                   pb-[max(1rem,env(safe-area-inset-bottom))] sm:mb-6 sm:max-w-xl sm:rounded-3xl"
+        className={`glass max-h-[75vh] w-full overflow-y-auto rounded-t-3xl border border-ink-700 p-4
+                   sm:mb-6 sm:max-w-xl sm:rounded-3xl ${
+                     overBottomNav
+                       ? 'pb-[calc(5.5rem+env(safe-area-inset-bottom))] sm:pb-[max(1rem,env(safe-area-inset-bottom))]'
+                       : 'pb-[max(1rem,env(safe-area-inset-bottom))]'
+                   }`}
       >
         <div className="mb-3 flex items-center justify-between gap-3">
           <h2 className="font-display text-base font-semibold text-fog-50">{title}</h2>
