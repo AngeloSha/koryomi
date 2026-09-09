@@ -11,6 +11,7 @@
 import { classify } from './sourceHealth';
 import { env } from '../env';
 import type { SourceAdapter } from './sources/types';
+import { coverSanity } from './sources/imgAttr';
 
 export interface Check { name: string; ok: boolean; detail: string }
 export interface SmokeResult { ok: boolean; timedOut?: boolean; checks: Check[] }
@@ -32,6 +33,9 @@ const past = (deadline: number) => Date.now() >= deadline;
  * all four terms, so trying the rest costs four times as long to learn nothing. Only a parse-shaped failure
  * (returned nothing, threw nothing) justifies another term, and that is exactly the case this is for.
  */
+/** The one check that is reported but does not vote on whether the source works. */
+const COVER_CHECK = 'Covers';
+
 export async function smokeTest(src: SourceAdapter, opts: { timeoutMs?: number } = {}): Promise<SmokeResult> {
   const deadline = Date.now() + (opts.timeoutMs ?? env.SOURCE_TEST_TIMEOUT_MS);
   const checks: Check[] = [];
@@ -59,6 +63,9 @@ export async function smokeTest(src: SourceAdapter, opts: { timeoutMs?: number }
   try {
     const series = await src.getSeries(results[0].sourceId);
     checks.push({ name: 'Series page', ok: !!series?.title, detail: series?.title ? clip(series.title) : 'no data' });
+    // Free: both halves are already in hand. See coverSanity for what it compares and why it is informational.
+    const cov = coverSanity(results, series);
+    checks.push({ name: COVER_CHECK, ok: cov.ok, detail: cov.detail });
     if (past(deadline)) return bail();
     chapters = await src.listChapters(results[0].sourceId);
     checks.push({ name: 'Chapters', ok: chapters.length > 0, detail: chapters.length ? `${chapters.length} chapter(s)` : 'none found' });
@@ -75,7 +82,10 @@ export async function smokeTest(src: SourceAdapter, opts: { timeoutMs?: number }
       checks.push({ name: 'Pages', ok: false, detail: clip(e?.message || 'error') });
     }
   }
-  return { ok: checks.every((c) => c.ok), checks };
+  // ⚠️ Covers are reported, never fatal. A source whose covers are wrong still fetches and reads perfectly,
+  // and marking it down would take a cosmetic fault and turn it into "this source is broken" -- which is how
+  // a health page starts crying wolf and stops being read. It shows in the check list; it does not vote.
+  return { ok: checks.filter((c) => c.name !== COVER_CHECK).every((c) => c.ok), checks };
 }
 
 export interface ProbeResult { httpStatus: number; finalUrl?: string; transport?: string; looksHtml?: boolean }

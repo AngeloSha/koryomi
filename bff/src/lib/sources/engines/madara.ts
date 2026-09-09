@@ -6,6 +6,7 @@ import { cfGet, cfPost } from '../flaresolverr';
 import { parseWhen } from '../dates';
 import { plainText } from '../../htmlText';
 import { seriesSlug, isOwnChapterUrl, rebase } from '../slug';
+import { pickImgUrl, pickImgUrlIn, pickAllImgUrls, dropRepeatedCovers } from '../imgAttr';
 
 const strip = plainText;
 const norm = (u: string) => u.replace(/^\/\//, 'https://').replace(/&amp;/g, '&').trim();
@@ -13,13 +14,9 @@ const norm = (u: string) => u.replace(/^\/\//, 'https://').replace(/&amp;/g, '&'
 // Madara search-result and latest-listing pages share the same result-card markup, so parse both here.
 export function parseResults(h: string, sourceId: string): SourceSeries[] {
   const covers = new Map<string, string>();
-  // Capture the whole <img> tag and choose the attribute afterwards. Writing `(?:data-src|src)=` after a
-  // greedy `<img[^>]+` does NOT express a preference -- the greedy prefix runs to the last attribute that
-  // matches, so ATTRIBUTE ORDER decides. On a lazy-loading theme that means the spacer in `src` wins over
-  // the real cover in `data-src`, and every card renders as the same grey pixel. The old code carried a
-  // comment claiming it preferred data-src; it did not.
-  const pickSrc = (imgTag: string): string | null =>
-    (imgTag.match(/\sdata-src="([^"]+)"/i) || imgTag.match(/\ssrc="([^"]+)"/i) || [])[1] ?? null;
+  // The rule lives in ../imgAttr now, because this engine was not the only place that needed it and the
+  // other places all got it wrong. See that file for why the attribute cannot be chosen inside the regex.
+  const pickSrc = pickImgUrl;
 
   // `tab-thumb` is stock Madara; `item-thumb`/`item-thumbnail` is what several themes ship instead, and
   // matching only the first meant those sites returned every title with no cover at all -- a wall of blank
@@ -63,7 +60,9 @@ export function parseResults(h: string, sourceId: string): SourceSeries[] {
     seen.add(url);
     out.push({ sourceId: url, source: sourceId, title: strip(alt), url, coverUrl: covers.get(url) });
   }
-  return out;
+  // ⚠️ A cover shared by three or more of these is not a cover. Dropping it is the repair: showing one
+  // picture on twenty cards is a confident lie, and nothing lets the real fallbacks take over. See imgAttr.
+  return dropRepeatedCovers(out);
 }
 
 export function makeMadara(cfg: { id: string; name: string; base: string; order?: number }): SourceAdapter {
@@ -112,7 +111,9 @@ export function makeMadara(cfg: { id: string; name: string; base: string; order?
       if (summary.length > 2500 || /<\/?(?:style|script)\b|\.[a-z][\w-]*\s*[{,]|@import|gtag\(|wp-manga|woocommerce|settings-page|datalayer|sourceurl/i.test(summary)) summary = '';
       const genreBlock = (h.match(/class="genres-content"[^>]*>([\s\S]*?)<\/div>/i) || [])[1] || '';
       const genres = [...genreBlock.matchAll(/<a[^>]*>([^<]+)<\/a>/gi)].map((x) => x[1].trim());
-      const cover = (h.match(/class="summary_image"[\s\S]*?<img[^>]+(?:data-src|src)="([^"]+)"/i) || [])[1];
+      // ⚠️ This line is why some MangaRead covers were the site's `Read.gif` placeholder: the old form put
+      // the alternation inside the regex, so attribute ORDER picked the winner, not us.
+      const cover = pickImgUrlIn(h, /class="summary_image"/i);
       let status = strip((h.match(/Status[\s\S]*?summary-content[^>]*>([\s\S]*?)<\/div>/i) || [])[1] || '');
       // a real status is a short word ("Ongoing"/"Completed") — anything long/CSS-ish is a mis-capture.
       if (status.length > 40 || /[{}]|@import|settings-page|woocommerce/i.test(status)) status = '';
@@ -163,9 +164,16 @@ export function makeMadara(cfg: { id: string; name: string; base: string; order?
     async getPageUrls(chapterId) {
       const h = await cfGet(chapterId);
       const urls: string[] = [];
-      for (const m of h.matchAll(/class="[^"]*wp-manga-chapter-img[^"]*"[^>]*?(?:data-src|src)="([^"]+)"/gi)) urls.push(norm(m[1]));
+      // Pages, not covers -- and the LAZY form here failed on the opposite attribute order to the cover
+      // above, so a lazy-loading theme served placeholder PAGES. Nobody had noticed.
+      for (const m of h.matchAll(/<img\b[^>]*class="[^"]*wp-manga-chapter-img[^"]*"[^>]*>/gi)) {
+        const u = pickImgUrl(m[0]);
+        if (u) urls.push(norm(u));
+      }
       if (!urls.length)
-        for (const m of h.matchAll(/<img[^>]+(?:data-src|src)="([^"]+\.(?:jpg|jpeg|png|webp)[^"?]*)[^"]*"/gi)) urls.push(norm(m[1]));
+        for (const u of pickAllImgUrls(h)) {
+          if (/\.(?:jpg|jpeg|png|webp)(?:[?#]|$)/i.test(u)) urls.push(norm(u));
+        }
       return urls.filter((u) => /^https?:/.test(u));
     },
   };

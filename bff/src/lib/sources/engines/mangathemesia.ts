@@ -7,6 +7,7 @@ import { SourceAdapter, SourceSeries, SourceChapter } from '../types';
 import { cfGet } from '../flaresolverr';
 import { parseWhen } from '../dates';
 import { plainText } from '../../htmlText';
+import { pickImgUrlIn, pickAllImgUrls, dropRepeatedCovers } from '../imgAttr';
 
 const strip = plainText;
 const norm = (u: string) => u.replace(/^\/\//, 'https://').replace(/&amp;/g, '&').trim();
@@ -22,10 +23,11 @@ export function makeMangaThemesia(cfg: { id: string; name: string; base: string;
       const url = norm(m[1]);
       if (seen.has(url)) continue;
       seen.add(url);
-      const cover = (m[3].match(/<img[^>]+(?:data-src|src)="([^"]+)"/i) || [])[1];
+      const cover = pickImgUrlIn(m[3]);
       out.push({ sourceId: url, source: cfg.id, title: strip(m[2]), url, coverUrl: cover ? norm(cover) : undefined });
     }
-    return out;
+    // See madara's parseResults and imgAttr: a cover on three or more cards is a placeholder, not art.
+    return dropRepeatedCovers(out);
   };
 
   return {
@@ -61,7 +63,7 @@ export function makeMangaThemesia(cfg: { id: string; name: string; base: string;
       const title = strip((h.match(/class="entry-title"[^>]*>([\s\S]*?)<\/h1>/i) || h.match(/property="og:title" content="([^"]+)"/i) || [])[1] || '');
       let summary = strip((h.match(/itemprop="description"[^>]*>([\s\S]*?)<\/div>/i) || h.match(/property="og:description" content="([^"]+)"/i) || [])[1] || '');
       if (/<\/?(?:style|script)\b/i.test(summary)) summary = '';
-      const cover = (h.match(/class="thumb"[\s\S]{0,160}?<img[^>]+(?:data-src|src)="([^"]+)"/i) || h.match(/property="og:image" content="([^"]+)"/i) || [])[1];
+      const cover = pickImgUrlIn(h, /class="thumb"/i) || (h.match(/property="og:image" content="([^"]+)"/i) || [])[1];
       const gblock = (h.match(/class="mgen"[^>]*>([\s\S]*?)<\/div>/i) || h.match(/class="seriestugenre"[^>]*>([\s\S]*?)<\/span>/i) || [])[1] || '';
       const genres = [...gblock.matchAll(/<a[^>]*>([^<]+)<\/a>/gi)].map((x) => x[1].trim());
       const status = strip((h.match(/class="imptdt"[^>]*>\s*Status\s*<i>([\s\S]*?)<\/i>/i) || [])[1] || '');
@@ -103,7 +105,9 @@ export function makeMangaThemesia(cfg: { id: string; name: string; base: string;
       }
       const area = (h.match(/id="readerarea"[^>]*>([\s\S]*?)<\/div>\s*<\/div>/i) || [])[1] || h;
       const urls: string[] = [];
-      for (const mm of area.matchAll(/<img[^>]+(?:data-src|src)="([^"]+\.(?:jpg|jpeg|png|webp)[^"?]*)/gi)) urls.push(norm(mm[1]));
+      for (const u of pickAllImgUrls(area)) {
+        if (/\.(?:jpg|jpeg|png|webp)(?:[?#]|$)/i.test(u)) urls.push(norm(u));
+      }
       return urls.filter((u) => /^https?:/.test(u));
     },
   };

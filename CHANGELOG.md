@@ -1,5 +1,52 @@
 # Changelog
 
+## v0.26.3 — 2026-09-09
+
+### The rest of the grey covers, and why they broke on their own
+
+v0.26.2 fixed the covers that came from the extension engine. The ones that remained — some of a source's
+covers working and others not, on the same page — were a different fault with a much more ordinary cause.
+
+Sites that load images lazily put a spacer in the `src` attribute and the real picture in `data-src`. The
+code that reads a cover out of that markup was written as one regular expression listing both attributes,
+which reads as a preference and is not one: which attribute wins is decided by regex mechanics and by the
+order the site happened to write them in. Two different spellings of that expression were in use, in
+different parts of the code, and they failed on **opposite** attribute orders.
+
+So a cover was right or wrong depending on nothing but markup order — which is the whole answer to why
+covers that worked for months stopped without anything changing here: the site reordered its markup, and the
+extraction quietly flipped. It is also why only *some* series were affected rather than all of them.
+
+There is now one place that answers "which attribute holds the picture", and it answers by preference:
+`data-src`, then the other lazy attributes, then `srcset`, and `src` only as a last resort. Every engine uses
+it. The same fault was present in the code that reads **page images**, where it would have served placeholder
+pages rather than placeholder covers — nobody had hit it yet.
+
+### A picture repeated on every card is not a cover
+
+When a listing comes back with the same image on three or more different series, that image is a placeholder
+and the covers were not parsed. Rather than show one picture twenty times — which is a confident lie — the
+cover is dropped, and the fallbacks that already exist take over: the artwork from AniList for a series in
+your library, then its first downloaded page, and otherwise the app's own empty tile.
+
+### Sources are now checked for this, not just for whether they answer
+
+The daily source check already fetched a listing and a series page and looked only at whether they returned
+anything. It now also compares them: when the two disagree about the same series' cover, one of the two
+parsers is wrong, and that is exactly the fault above — visible without waiting for somebody to notice grey
+tiles. It also notices one image repeated across a listing, and a listing that has lost its covers entirely.
+
+Reported in Admin → Health, never as a failure: a source whose covers are wrong still fetches and reads
+perfectly well, and marking it broken would turn a cosmetic fault into an outage.
+
+### Security
+
+Two Dependabot advisories, both about zip extraction following symlinks, neither with a published fix.
+Assessed rather than ignored: one is a test-only dependency that never reaches a running server, and the
+other is used here solely to *build* archives — the vulnerable extraction call is never made, and untrusted
+archives are read by a different library entirely. A test now enforces that second claim, so if extraction is
+ever added, it fails rather than quietly making the assessment untrue.
+
 ## v0.26.2 — 2026-09-09
 
 ### Discover's grey covers
