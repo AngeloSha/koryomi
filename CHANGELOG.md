@@ -1,5 +1,45 @@
 # Changelog
 
+## v0.26.2 — 2026-09-09
+
+### Discover's grey covers
+
+Whole rails of Discover showed a grey box with a broken-image icon instead of cover art — every result from
+an affected source, permanently. The cause is a fix colliding with a design.
+
+v0.21.0 hardened the cover proxy so it could not be pointed at anything on the local network, because the URL
+it fetches is supplied by whoever asks. Separately, the extension engine serves every cover through itself,
+so an extension source's cover lives at the engine's own address — which is on the local network. The guard
+did exactly what it was written to do, to the app's own engine, and the result was served as a grey
+placeholder and then cached under the real cover's key with a one-year lifetime.
+
+The proxy now recognises the one address it is configured to talk to and fetches covers from it, exactly as
+the extension-icon route already did. That is a single origin, matched whole — not a rule about private
+addresses, which would hand back the capability the original fix removed.
+
+Two more things were wrong in the same place, and both outlived the cause:
+
+- **A failure was cached as though it were the picture.** A cover that could not be fetched wrote its grey
+  stand-in under the real cover's key, marked immutable for a year, with nothing able to clear it. One bad
+  minute on a source's CDN — or a single hiccup from a name server, which the guard cannot tell apart from a
+  blocked address — meant a grey tile until the cache overflowed. Placeholders are no longer stored, and
+  expire in a minute.
+- **The grey already on your screen would have stayed.** Browsers keep those year-long copies by address, so
+  the address changed too, and the server-side entries written under the old scheme are now unreachable.
+
+### The Cloudflare solver says when it is behind, and speaks up when it dies
+
+The solver announces its version and the app printed it and compared it to nothing. Admin → Health now says
+when a newer release is out. It is advice, never an alarm: if GitHub is unreachable, rate-limited, or returns
+something unfamiliar, the app has no opinion rather than a problem — a health page that can fail because a
+third party is having an afternoon is worse than no version check at all.
+
+The bigger gap was that the solver's health was only ever examined when somebody opened the Health tab. A
+solver that died at two in the morning stayed dead until it was noticed, while every Cloudflare-protected
+source failed and blamed itself — the exact confusion that check exists to clear up. It now runs hourly and
+notifies on a change, in both directions, so a recovery is reported too and a long outage does not become
+hourly noise.
+
 ## v0.26.1 — 2026-09-08
 
 ### The background jobs keep up now

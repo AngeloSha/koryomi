@@ -208,9 +208,17 @@ export function SeriesTile({ series, eager = false, selectable, selected, onTogg
  * Same-origin on purpose: a cross-origin `<img>` is unreliable in a standalone iOS PWA, which is the app's
  * primary target. `Img`'s `fallbackSrc` carries the direct URL for the case where the proxy itself fails.
  */
+/**
+ * ⚠️ `v=2` is a cache buster, and it is not decoration.
+ *
+ * Until v0.26.2 a cover the server could not fetch was answered with a grey placeholder at HTTP 200 and
+ * `Cache-Control: immutable, max-age=31536000`. Every browser and service worker that saw one is holding it
+ * for a YEAR, keyed by this URL. Fixing the server cannot reach those copies; only a different URL can.
+ * Bump this token again if a future change ever needs to invalidate covers client-side.
+ */
 export const sourceCover = (source: string | undefined, u?: string | null, w?: 800 | 1600) =>
   (u
-    ? `/img/sources/cover?${source ? `source=${encodeURIComponent(source)}&` : ''}u=${encodeURIComponent(u)}${w ? `&w=${w}` : ''}`
+    ? `/img/sources/cover?${source ? `source=${encodeURIComponent(source)}&` : ''}u=${encodeURIComponent(u)}${w ? `&w=${w}` : ''}&v=2`
     : '');
 
 /** One row from a source: a `latest` item, or a grouped search hit with several providers behind it. */

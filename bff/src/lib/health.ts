@@ -11,6 +11,7 @@
 //    genuinely one image long. Only whole-numbered chapters are worth flagging as too short.
 import { q } from './db';
 import { visibleToAll } from './visibility';
+import { latestSolverVersion, isBehind } from './solverVersion';
 import { solverPing, solverUrl } from './sources/flaresolverr';
 import { getSource } from './sources';
 import { gapsOf } from './fill';
@@ -342,7 +343,7 @@ async function outlierChapters(): Promise<HealthCheck> {
  * ran for 62 days with Docker's default 64 MB of shared memory, which is far too little for Chrome: it kept
  * crashing mid-challenge, and the app dutifully reported that the sites were blocking us.
  */
-async function solverHealth(): Promise<HealthCheck> {
+export async function solverHealth(): Promise<HealthCheck> {
   const ping = await solverPing();
   // Sources whose own recorded failure blames the solver. This is the correlation that turns "four sites
   // are broken" into "one container is broken".
@@ -370,18 +371,29 @@ async function solverHealth(): Promise<HealthCheck> {
       ],
     };
   }
+  // ⚠️ Advisory only, and it must stay that way: `latestSolverVersion` answers null when GitHub is
+  // unreachable, rate-limited or unrecognisable, and `isBehind` answers false whenever either side cannot be
+  // parsed. Being out of date is worth SAYING; it is never worth turning a working solver into a warning,
+  // and a health page must not be able to fail because github.com is having an afternoon.
+  const latest = await latestSolverVersion();
+  const behind = isBehind(ping.version, latest);
   return {
     id: 'solver',
     title: 'Cloudflare solver',
     status: blaming.length ? 'warn' : 'ok',
     summary: blaming.length
       ? `Answering, but ${blaming.length} source${blaming.length === 1 ? '' : 's'} recently failed inside it`
-      : `Ready${ping.version ? ` (v${ping.version})` : ''}`,
+      : `Ready${ping.version ? ` (v${ping.version})` : ''}${behind ? ` — v${latest} is available` : ''}`,
     note: blaming.length
       ? 'It responds, but it has been failing mid-request. Chrome needs far more than Docker\'s default '
       + '64 MB of shared memory (set shm_size: 1gb), and the solver leaks memory, so it wants a restart.'
       : undefined,
-    items: blaming.map((b) => ({ title: b.source_id, detail: 'its last failure happened inside the solver' })),
+    items: [
+      ...(behind
+        ? [{ title: `v${ping.version} → v${latest}`, detail: 'a newer solver is out; Cloudflare changes often break older ones' }]
+        : []),
+      ...blaming.map((b) => ({ title: b.source_id, detail: 'its last failure happened inside the solver' })),
+    ],
   };
 }
 

@@ -11,6 +11,7 @@ import { cfSession } from '../lib/sources/flaresolverr';
 import { getSource } from '../lib/sources';
 import { assertPublicHost, isBlockedHost, BlockedAddress } from '../lib/ssrfGuard';
 import { suwayomiUrl, suwayomiImageHeaders } from '../lib/sources/suwayomi/client';
+import { env } from '../env';
 import { join } from 'path';
 import { readFile } from 'fs/promises';
 import { q, one } from '../lib/db';
@@ -67,6 +68,28 @@ export function fetchableCoverUrl(u: string | null | undefined): URL | null {
   return parsed;
 }
 
+/** `scheme://host:port` of a URL, or null if it is not a URL at all. Compared, never parsed by hand. */
+function originOf(u: string): string | null {
+  try { return new URL(u).origin; } catch { return null; }
+}
+
+/**
+ * Is this URL on the configured extension engine's own origin?
+ *
+ * Exported so the rule can be tested directly rather than restated in a test, which is how a guard ends up
+ * asserted against a copy of itself. `engine` is a parameter for the same reason — `env` is parsed once at
+ * module load, so a test cannot vary it by poking `process.env`.
+ *
+ * Origin is scheme + host + PORT, compared whole: naming the host does not inherit the exemption for every
+ * port on it, and a `null` on either side never matches, so an unconfigured engine exempts nothing and two
+ * unparseable values do not compare equal.
+ */
+export function isEngineOrigin(u: string, engine: string | undefined = env.SUWAYOMI_URL): boolean {
+  const want = originOf(engine || '');
+  const got = originOf(u);
+  return want !== null && got !== null && got === want;
+}
+
 /** Thrown for a cover value that could never be fetched, so callers can tell it from a transient failure. */
 export class UnfetchableCoverUrl extends Error {
   readonly statusCode = 400;
@@ -76,6 +99,29 @@ export class UnfetchableCoverUrl extends Error {
 /** Fetch a remote cover image as raw bytes. Sends browser-ish headers (AniList/MangaDex CDNs reject bare
  *  requests) and, for Cloudflare-protected source hosts (Aqua/ManhuaPlus), attaches FlareSolverr cookies. */
 async function fetchCoverImage(u: string, source?: string): Promise<Buffer> {
+  // ⚠️ THE EXTENSION ENGINE IS NOT THE PUBLIC INTERNET, AND ITS COVERS ARE NOT AN SSRF TARGET.
+  //
+  // Suwayomi proxies every cover through itself, so an extension source's `coverUrl` is an absolute URL on
+  // the engine's own origin -- `http://yomi-suwayomi:4567/...` by default. That origin resolves to a private
+  // address, which is exactly what the guard below refuses, so EVERY cover from EVERY extension source was
+  // answered with the grey placeholder: whole rails of Discover, permanently, and cached for a year because
+  // `srccover:` is stored immutable. Extension ICONS never had the problem only because their route fetches
+  // the engine directly and never consults the guard at all.
+  //
+  // The exemption is ONE ORIGIN, matched exactly, and that distinction is the whole safety argument: `?u=` is
+  // caller-supplied, so a rule like "allow private addresses" would hand back the very thing v0.21.0 removed --
+  // any signed-in reader could point this at yomi-db or the cloud metadata service. `SUWAYOMI_URL` is
+  // operator-configured, is where we already send credentials, and is the same trust the icon route assumes.
+  // Redirects are not followed here: if the engine ever answered a redirect, it would leave this origin and
+  // deserve the full guard, so a non-2xx simply fails.
+  // Reintroduce by allowing any private address instead of this one origin: the guard is gone and
+  // `coverProxy.int.test.ts` fails on yomi-db, the metadata service and an unrelated private host.
+  if (isEngineOrigin(u)) {
+    const r = await fetch(u, { headers: suwayomiImageHeaders(), signal: AbortSignal.timeout(20000) });
+    if (!r.ok) throw Object.assign(new Error('cover'), { statusCode: 502 });
+    return Buffer.from(await r.arrayBuffer());
+  }
+
   // Before anything else, and before any network call: everything below assumes a real http(s) URL.
   const parsed = fetchableCoverUrl(u);
   if (!parsed) throw new UnfetchableCoverUrl(u);
@@ -570,7 +616,11 @@ export default async function imageRoutes(app: FastifyInstance) {
     // become a request to render someone's 8000px file.
     const width = w === '1600' ? 1600 : w === '800' ? 800 : 400;
     // The width is part of the cache key, or the first variant fetched would be served for every size.
-    return serveImage(req, reply, `srccover:${width}:${u}`, async () => {
+    // ⚠️ `srccover2`, not `srccover`. Every entry written under the old prefix may be a grey placeholder
+    // stored as though it were the cover, and there is no way to tell one from a real cover without decoding
+    // it. Changing the namespace makes the whole poisoned generation unreachable in one line and lets the
+    // cache's own LRU reclaim it; the browser-side copies are dropped by the version token on the URL.
+    return serveImage(req, reply, `srccover2:${width}:${u}`, async () => {
       let input: Buffer;
       try {
         input = await fetchCoverImage(u, source);
@@ -583,7 +633,10 @@ export default async function imageRoutes(app: FastifyInstance) {
         // proxy by retrying `fallbackSrc` (the direct URL), and a placeholder served with 200 would look
         // like a success and take that second chance away.
         if (!(e instanceof UnfetchableCoverUrl)) throw e;
-        return { buffer: await coverPlaceholder(width), contentType: 'image/webp' };
+        // `store: false` -- serve it, do not remember it. This used to be written under the real cover's key
+        // and served `immutable, max-age=31536000`: a year of grey for what may have been one bad minute on a
+        // CDN, or a single DNS hiccup (ssrfGuard maps a failed lookup to the same refusal).
+        return { buffer: await coverPlaceholder(width), contentType: 'image/webp', store: false };
       }
       const buffer = await sharp(input).resize({ width, withoutEnlargement: true }).webp({ quality: 72 }).toBuffer();
       return { buffer, contentType: 'image/webp' };

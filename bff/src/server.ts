@@ -14,6 +14,8 @@ import { migrate } from './lib/migrate';
 import { loadSources, loadCustomSites, loadBuiltins, listSources, loadSuwayomiSources, scheduleSuwayomiRetry, suwayomiConfigured } from './lib/sources';
 import { scheduleFingerprintBackfill } from './lib/fingerprintJob';
 import { schedulePageHashBackfill } from './lib/pageHashJob';
+import { solverHealth } from './lib/health';
+import { notifyAdmins } from './lib/push';
 import { runSourceCheck } from './lib/sourceWatchdog';
 import { runSweep } from './lib/updater';
 import { runExtensionMonitor } from './lib/extensionMonitor';
@@ -186,6 +188,49 @@ async function main() {
       app.log.info(`updater: first sweep in ${Math.round(delay / 60000)} min` + (last ? ` (last completed ${new Date(last).toISOString()})` : ' (no completed sweep on record)'));
       setTimeout(tick, delay).unref();
     })();
+  }
+
+  /**
+   * The Cloudflare solver, watched rather than waited on.
+   *
+   * ⚠️ `solverHealth` is good and it was invisible. It ran ONLY when an admin opened the Health tab, so a
+   * solver that died at two in the morning stayed dead until somebody happened to look — while every
+   * Cloudflare-protected source failed and recorded the failure against itself, which is the exact confusion
+   * that check was written to clear up.
+   *
+   * Hourly: it is one HTTP call to a container on the same network, and the thing it watches is a Chrome
+   * process known to leak memory and crash mid-challenge.
+   *
+   * EDGE-TRIGGERED. A solver that is down stays down, and a notification every hour about it is not
+   * information — the same reasoning as the extension monitor's refresh-failure push. Only a CHANGE is
+   * announced, in both directions, so recovery is told too.
+   * Reintroduce by pushing whenever the status is bad rather than when it changes: a solver that dies on
+   * Friday sends 48 notifications by Sunday and the operator turns them off.
+   */
+  {
+    const HOUR = 60 * 60 * 1000;
+    let lastBad: boolean | null = null;
+    const tick = async () => {
+      try {
+        const h = await solverHealth();
+        const bad = h.status === 'problem' || h.status === 'warn';
+        if (lastBad !== null && bad !== lastBad) {
+          await notifyAdmins(
+            bad ? 'Cloudflare solver needs attention' : 'Cloudflare solver recovered',
+            h.summary,
+            '/admin/',
+            'solver',
+          );
+        }
+        if (bad !== lastBad) app.log.info(`solver health: ${h.status} — ${h.summary}`);
+        lastBad = bad;
+      } catch (e) {
+        // A failed check must not end the schedule; that would be the very outage it is here to notice.
+        app.log.error(e as any);
+      }
+      setTimeout(tick, HOUR).unref();
+    };
+    setTimeout(tick, 10 * 60 * 1000).unref();
   }
 
   /**

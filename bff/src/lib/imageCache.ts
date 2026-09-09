@@ -34,36 +34,49 @@ async function readMeta(key: string): Promise<Meta | null> {
   }
 }
 
-const inflight = new Map<string, Promise<Meta>>();
+const inflight = new Map<string, Promise<{ meta: Meta; transient?: Buffer }>>();
 
 // writeAtomic now lives in fsAtomic.ts, shared with the downloader: the library deserved the same guarantee
 // the cache already had.
 
 /** Get cached metadata for `variant`, fetching+storing via `fetcher` on a miss.
  *  Exported for cache pre-warmers (e.g. hero backdrops) that want to populate the cache without a request. */
+/**
+ * A fetcher result. `store: false` means "serve this, do not remember it".
+ *
+ * ⚠️ That exists because a FAILURE used to be stored under the key of the thing that failed. The cover proxy
+ * answers an unfetchable cover with a grey placeholder, and this cache wrote it under `srccover:<url>` and
+ * served it `immutable, max-age=31536000` -- a year of grey for a cover that might have been one bad minute
+ * on a CDN, or one hiccup from a DNS resolver, with no TTL and no way to invalidate it.
+ */
+export interface FetchedImage { buffer: Buffer; contentType: string; store?: boolean }
+
 export async function getOrFetch(
   variant: string,
-  fetcher: () => Promise<{ buffer: Buffer; contentType: string }>,
-): Promise<{ key: string; meta: Meta }> {
+  fetcher: () => Promise<FetchedImage>,
+): Promise<{ key: string; meta: Meta; transient?: Buffer }> {
   const key = keyFor(variant);
   const existing = await readMeta(key);
   if (existing) return { key, meta: existing };
 
   let p = inflight.get(key);
   if (!p) {
-    p = (async () => {
+    p = (async (): Promise<{ meta: Meta; transient?: Buffer }> => {
       const { dir, bin, meta } = pathsFor(key);
-      const { buffer, contentType } = await fetcher();
+      const { buffer, contentType, store } = await fetcher();
       const m: Meta = { contentType, length: buffer.length, etag: `"${key.slice(0, 32)}"` };
+      // Handed straight back instead of written. Nothing is left on disk, so the next request tries again.
+      if (store === false) return { meta: m, transient: buffer };
       await fs.mkdir(dir, { recursive: true });
       await writeAtomic(bin, buffer);
       await writeAtomic(meta, JSON.stringify(m));
       noteCacheWrite(buffer.length);
-      return m;
+      return { meta: m };
     })().finally(() => inflight.delete(key));
     inflight.set(key, p);
   }
-  return { key, meta: await p };
+  const { meta, transient } = await p;
+  return { key, meta, transient };
 }
 
 function serveFromDisk(request: FastifyRequest, reply: FastifyReply, binPath: string, meta: Meta, cacheControl: string) {
@@ -105,12 +118,21 @@ export async function serveImage(
   variant: string,
   fetcher: () => Promise<{ buffer: Buffer; contentType: string }>,
 ) {
-  const { key, meta } = await getOrFetch(variant, fetcher);
+  const { key, meta, transient } = await getOrFetch(variant, fetcher);
+  // ⚠️ Not written, so not served as if it were the real thing either. A placeholder standing in for a cover
+  // that could not be fetched must expire quickly: the cover may be fine in a minute, and the alternative --
+  // what this used to do -- is a year of grey under the real cover's key with no way to invalidate it.
+  if (transient) {
+    return reply
+      .header('content-type', meta.contentType)
+      .header('cache-control', 'public, max-age=60')
+      .send(transient);
+  }
   const { bin } = pathsFor(key);
   // Content-addressed variants never change for a given key → cache hard: page images, and remote covers
-  // keyed by their full source URL (srccover:<url>). Library thumbnails/backdrops use a STABLE url whose
+  // keyed by their full source URL (srccover2:<url>). Library thumbnails/backdrops use a STABLE url whose
   // content can change (panel→real cover, AniList refresh) → keep those revalidatable.
-  const immutable = /^(?:lib-)?page:/.test(variant) || variant.startsWith('srccover:');
+  const immutable = /^(?:lib-)?page:/.test(variant) || variant.startsWith('srccover2:');
   // hero backdrops: content changes only when the art itself changes (rare; admin overrides bust via ?av=)
   // → let browsers hold them a day so the carousel doesn't refetch on every visit.
   const cacheControl = immutable

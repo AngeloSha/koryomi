@@ -70,6 +70,13 @@ services:
     networks: [uchiyomi_app]
 
   # Cloudflare solver. Most manga aggregators sit behind Cloudflare, so the fetching half needs this.
+  #
+  # `:latest` is not self-updating -- Docker keeps whatever layer is on disk until you `docker compose pull`.
+  # Uchiyomi never updates this container itself; it does check the solver's health hourly and tells you when
+  # it stops answering or starts failing mid-challenge, and Admin -> Health says when a newer release exists.
+  # If you run Watchtower and would rather the solver kept pace with Cloudflare on its own, add:
+  #     labels: [ "com.centurylinklabs.watchtower.enable=true" ]
+  # Off by default: opting somebody into unattended updates of a dependency is not ours to decide.
   uchiyomi-flaresolverr:
     image: ghcr.io/flaresolverr/flaresolverr:latest
     container_name: uchiyomi-flaresolverr
